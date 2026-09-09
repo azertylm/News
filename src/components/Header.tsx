@@ -1,8 +1,10 @@
-import { Settings, RefreshCw, Sparkles, Sun, Moon } from "lucide-react";
+import { Settings, RefreshCw, Sparkles, Sun, Moon, Zap, MapPin } from "lucide-react";
 
 interface HeaderProps {
   onOpenSettings: () => void;
+  onOpenLocation?: () => void;
   onRefresh: () => void;
+  onInstantGenerate?: () => void;
   isGenerating: boolean;
   isAiMode: boolean;
   searchQuery: string;
@@ -15,7 +17,9 @@ interface HeaderProps {
 
 export default function Header({
   onOpenSettings,
+  onOpenLocation,
   onRefresh,
+  onInstantGenerate,
   isGenerating,
   isAiMode,
   searchQuery,
@@ -58,20 +62,20 @@ export default function Header({
       <div className="w-full max-w-5xl mx-auto px-4 md:px-8 flex flex-row items-center justify-between gap-4">
         
         {/* Title and Badge */}
-        <div className="flex items-center gap-3 md:gap-5">
+        <div className="flex items-center gap-3 md:gap-4">
           <h1 className={`text-xl md:text-2xl font-bold tracking-tight uppercase font-display ${brandTextClass}`}>
             Focus <span className="text-blue-600">News</span>
           </h1>
           
           {/* AI vs Demo Mode Badge */}
-          <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] sm:text-[11px] font-mono font-medium border shrink-0 ${badgeClass}`}>
+          <div className={`hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] sm:text-[11px] font-mono font-medium border shrink-0 ${badgeClass}`}>
             <Sparkles className="w-3.5 h-3.5 text-blue-500 animate-pulse" />
             <span className="font-bold">Rédacteur IA</span>
           </div>
         </div>
 
         {/* Action controls with theme switcher */}
-        <div className="flex items-center gap-2 md:gap-4">
+        <div className="flex items-center gap-2 md:gap-3">
           
           {/* Theme Switcher Selector Pill */}
           <div id="theme-switcher-pills" className={`flex items-center gap-1 p-0.5 rounded-full border transition-all ${
@@ -105,8 +109,18 @@ export default function Header({
             </button>
           </div>
 
-          {/* Action controls */}
+          {/* Action controls on mobile */}
           <div className="flex items-center gap-1.5 md:hidden">
+            <button
+              onClick={onInstantGenerate || onRefresh}
+              disabled={isGenerating}
+              className={`p-2 rounded-full transition text-amber-500 bg-amber-500/10 border border-amber-500/30 disabled:opacity-50 ${
+                isGenerating ? "animate-spin" : ""
+              }`}
+              title="Créer des articles maintenant (hors heure)"
+            >
+              <Zap className="w-3.5 h-3.5" />
+            </button>
             <button
               onClick={onRefresh}
               disabled={isGenerating}
@@ -117,6 +131,15 @@ export default function Header({
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
+            {onOpenLocation && (
+              <button
+                onClick={onOpenLocation}
+                className={`p-2 rounded-full transition ${auxButtonClass}`}
+                title="Régions & Journaux de référence"
+              >
+                <MapPin className="w-3.5 h-3.5 text-blue-500" />
+              </button>
+            )}
             <button
               onClick={onOpenSettings}
               className={`p-2 rounded-full transition ${auxButtonClass}`}
@@ -127,11 +150,32 @@ export default function Header({
           </div>
 
           {/* Regular buttons: visible on desktop/tablet */}
-          <div className="hidden md:flex items-center gap-2.5">
+          <div className="hidden md:flex items-center gap-2">
+            {onOpenLocation && (
+              <button
+                onClick={onOpenLocation}
+                className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl transition cursor-pointer ${auxButtonClass} ${labelTextClass}`}
+                title="Régler ma région et mes journaux de référence"
+              >
+                <MapPin className="w-3.5 h-3.5 text-blue-500" />
+                <span>Région & Médias</span>
+              </button>
+            )}
+
+            <button
+              onClick={onInstantGenerate || onRefresh}
+              disabled={isGenerating}
+              className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 disabled:opacity-50 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition cursor-pointer shadow-lg shadow-orange-500/20"
+              title="Créer une nouvelle édition d'articles immédiatement sans attendre l'heure"
+            >
+              <Zap className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />
+              <span>{isGenerating ? "Création..." : "Créer hors heure"}</span>
+            </button>
+
             <button
               onClick={onRefresh}
               disabled={isGenerating}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:opacity-50 text-white font-semibold text-xs px-4 py-2 rounded-xl transition cursor-pointer shadow-lg shadow-blue-500/10"
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:opacity-50 text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition cursor-pointer shadow-lg shadow-blue-500/10"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />
               <span>{isGenerating ? "IA..." : "Régénérer"}</span>
@@ -139,17 +183,17 @@ export default function Header({
 
             <button
               onClick={onOpenSettings}
-              className={`flex items-center gap-2 text-xs px-4 py-2 rounded-xl transition cursor-pointer ${auxButtonClass} ${labelTextClass}`}
+              className={`flex items-center gap-2 text-xs px-3 py-2 rounded-xl transition cursor-pointer ${auxButtonClass} ${labelTextClass}`}
             >
               <Settings className="w-3.5 h-3.5" />
-              <span>Sujets de lecture</span>
+              <span>Sujets</span>
             </button>
           </div>
         </div>
 
       </div>
 
-      {/* Optional helper message (cleaned from key warning and quota mention, very positive and minimal) */}
+      {/* Optional helper message */}
       {message && !message.toLowerCase().includes("saturé") && !message.toLowerCase().includes("démo") && !message.toLowerCase().includes("quota") && (
         <div className={`absolute bottom-[-24px] left-0 w-full text-center text-[10px] font-mono py-1 border-b flex items-center justify-center gap-1.5 px-4 truncate transition-all ${
           theme === "clair" 

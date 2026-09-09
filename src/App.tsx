@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { Sparkles, Heart, Bookmark, SlidersHorizontal, Info, Clock, Play, Disc } from "lucide-react";
+import { Sparkles, Heart, Bookmark, SlidersHorizontal, Info, Clock, Play, Disc, Zap, PlusCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { Article } from "./types";
-import { getHourlyFlashSummary } from "./data/hourlyNews";
+import { Article, UserLocation } from "./types";
+import { sanitizeArticle, sanitizeText } from "./utils/textCleaner";
+import { getHourlyFlashSummary, getArticlesForHour, getInstantArticles } from "./data/hourlyNews";
 import Header from "./components/Header";
 import PreferencesModal from "./components/PreferencesModal";
+import LocationMediaBanner from "./components/LocationMediaBanner";
 import NewsArticleCard from "./components/NewsArticleCard";
 import ArticleDetailModal from "./components/ArticleDetailModal";
 
@@ -12,8 +14,25 @@ export default function App() {
   // Navigation & UI States
   const [activeTab, setActiveTab] = useState<"feed" | "bookmarks">("feed");
   const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [preferencesInitialTab, setPreferencesInitialTab] = useState<"location" | "preferences" | "ai">("location");
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Location and Regional Press Preferences
+  const [location, setLocation] = useState<UserLocation>(() => {
+    try {
+      const stored = localStorage.getItem("myNewsLocation");
+      if (stored) return JSON.parse(stored);
+    } catch (e) {}
+    return {
+      country: "France",
+      countryCode: "FR",
+      region: "Île-de-France",
+      city: "Paris",
+      preferredSources: ["Le Monde", "Marianne", "Franceinfo", "Google News"]
+    };
+  });
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
 
   // Feed States
   const [articles, setArticles] = useState<Article[]>([]);
@@ -22,9 +41,11 @@ export default function App() {
   const [isAiMode, setIsAiMode] = useState(false);
   const [apiMessage, setApiMessage] = useState("");
 
-  // Live Simulated Hour State
+  // Live Simulated Hour State & On-Demand Instant Editions
   const currentHourLocal = new Date().getHours();
   const [selectedHour, setSelectedHour] = useState<number>(currentHourLocal);
+  const [isInstantEditionSelected, setIsInstantEditionSelected] = useState<boolean>(false);
+  const [instantEditionTime, setInstantEditionTime] = useState<string | null>(null);
 
   // Digital Live Clock State (hh:mm:ss)
   const [liveTime, setLiveTime] = useState("");
@@ -71,6 +92,59 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Auto-detect geolocation with reverse geocoding
+  const handleDetectLocation = () => {
+    if (!navigator.geolocation) {
+      showToast("La géolocalisation n'est pas supportée par votre navigateur.");
+      return;
+    }
+    setIsDetectingLocation(true);
+    showToast("Recherche de votre localisation précise en cours...");
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1`
+          );
+          const data = await res.json();
+          if (data && data.address) {
+            const country = data.address.country || "France";
+            const countryCode = (data.address.country_code || "fr").toUpperCase();
+            const region = data.address.state || data.address.region || data.address.county || "Région";
+            const city = data.address.city || data.address.town || data.address.village || data.address.municipality || region;
+
+            const newLoc: UserLocation = {
+              country,
+              countryCode,
+              region,
+              city,
+              preferredSources: location.preferredSources && location.preferredSources.length > 0
+                ? location.preferredSources
+                : ["Le Monde", "Marianne", "Franceinfo", "Google News"]
+            };
+            setLocation(newLoc);
+            localStorage.setItem("myNewsLocation", JSON.stringify(newLoc));
+            showToast(`📍 Région détectée : ${city}, ${region} (${country})`);
+            fetchNewsForHour(selectedHour, true, { loc: newLoc });
+          } else {
+            showToast("Position approximative détectée.");
+          }
+        } catch (e) {
+          showToast("Position par défaut conservée.");
+        } finally {
+          setIsDetectingLocation(false);
+        }
+      },
+      (err) => {
+        setIsDetectingLocation(false);
+        showToast("Accès GPS non autorisé. Vous pouvez choisir votre région manuellement.");
+      },
+      { timeout: 8000 }
+    );
+  };
+
   // Save Preferences Handler - immediately synchronizes and re-fetches for real-time reactivity!
   const handleSavePreferences = (
     cats: string[],
@@ -80,7 +154,8 @@ export default function App() {
     provider: "gemini" | "claude" | "mistral",
     gKey: string,
     cKey: string,
-    mKey: string
+    mKey: string,
+    updatedLocation: UserLocation
   ) => {
     setCategories(cats);
     setCustomCategories(custom);
@@ -88,6 +163,7 @@ export default function App() {
     setBio(userBio);
     setActiveProvider(provider);
     setGeminiKey(gKey);
+    setLocation(updatedLocation);
     
     localStorage.setItem("myNewsPrefs", JSON.stringify(cats));
     localStorage.setItem("myCustomNewsPrefs", JSON.stringify(custom));
@@ -95,8 +171,9 @@ export default function App() {
     localStorage.setItem("myNewsBio", userBio);
     localStorage.setItem("myNewsActiveProvider", provider);
     localStorage.setItem("myNewsGeminiKey", gKey);
+    localStorage.setItem("myNewsLocation", JSON.stringify(updatedLocation));
 
-    showToast("Thématiques et interférences enregistrées !");
+    showToast("Préférences régionales et éditoriales enregistrées !");
     setPreferencesOpen(false);
 
     // Dynamic re-fetch with latest options to reflect new preferences immediately
@@ -106,7 +183,8 @@ export default function App() {
       vibe,
       userBio,
       prov: provider,
-      gKey
+      gKey,
+      loc: updatedLocation
     });
   };
 
@@ -128,12 +206,14 @@ export default function App() {
       const storedLikes = localStorage.getItem("myNewsLikes");
       const storedBookmarks = localStorage.getItem("myNewsBookmarks");
       const storedVibe = localStorage.getItem("myNewsVibe");
+      const storedLocation = localStorage.getItem("myNewsLocation");
 
       if (storedPrefs) setCategories(JSON.parse(storedPrefs));
       else setCategories(defaultCats);
 
       if (storedCustom) setCustomCategories(JSON.parse(storedCustom));
       if (storedVibe) setTodayVibe(storedVibe);
+      if (storedLocation) setLocation(JSON.parse(storedLocation));
 
       const storedBio = localStorage.getItem("myNewsBio") || "";
       const storedProvider = (localStorage.getItem("myNewsActiveProvider") || "gemini") as "gemini" | "claude" | "mistral";
@@ -162,9 +242,11 @@ export default function App() {
       userBio?: string;
       prov?: "gemini" | "claude" | "mistral";
       gKey?: string;
-    }
+      loc?: UserLocation;
+    },
+    isInstant = false
   ) => {
-    if (isPullRefresh) {
+    if (isPullRefresh || isInstant) {
       setIsGenerating(true);
     } else {
       setLoading(true);
@@ -176,6 +258,7 @@ export default function App() {
     const bioToUse = overridePrefs?.userBio ?? bio;
     const providerToUse = overridePrefs?.prov ?? activeProvider;
     const gKeyToUse = overridePrefs?.gKey ?? geminiKey;
+    const locToUse = overridePrefs?.loc ?? location;
 
     try {
       const res = await fetch("/api/news", {
@@ -186,20 +269,23 @@ export default function App() {
         },
         body: JSON.stringify({
           hour,
-          forceRefresh: isPullRefresh,
+          forceRefresh: isPullRefresh || isInstant,
+          isInstantEdition: isInstant,
           categories: catsToUse,
           customCategories: customToUse,
           todayVibe: vibeToUse,
           bio: bioToUse,
-          activeProvider: providerToUse
+          activeProvider: providerToUse,
+          location: locToUse
         })
       });
       const data = await res.json();
       
       if (data.articles) {
-        setArticles(data.articles);
+        const cleaned = Array.isArray(data.articles) ? data.articles.map(sanitizeArticle) : [];
+        setArticles(cleaned);
         setIsAiMode(!!data.fromAI);
-        setApiMessage(data.message || `Actualités synchronisées de ${hour}h00.`);
+        setApiMessage(data.message || (isInstant ? `Édition flash instantanée générée.` : `Actualités synchronisées de ${hour}h00.`));
         if (data.hasApiKey !== undefined) {
           setHasApiKey(!!data.hasApiKey);
         }
@@ -208,18 +294,54 @@ export default function App() {
         setApiMessage("Contenu indisponible.");
       }
     } catch (e) {
-      console.error("Error fetching content:", e);
-      setApiMessage("Erreur réseau temporaire.");
+      // Graceful fallback to client-side deterministic real news bank on network issue
+      const now = new Date();
+      const rawFallback = isInstant
+        ? getInstantArticles(now.getHours(), now.getMinutes())
+        : getArticlesForHour(hour !== undefined ? hour : now.getHours());
+      
+      const fallbackArticles = rawFallback.map(sanitizeArticle);
+      setArticles(fallbackArticles);
+      setIsAiMode(false);
+      setApiMessage(isInstant ? `Édition instantanée chargée.` : `Actualités synchronisées.`);
     } finally {
       setLoading(false);
       setIsGenerating(false);
     }
   };
 
+  // Dedicated on-demand instant article creator (works anytime, even outside scheduled hour)
+  const handleCreateInstantArticles = (overrideSubject?: string) => {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const timeLabel = `${hh}h${mm}`;
+    
+    setIsInstantEditionSelected(true);
+    setInstantEditionTime(timeLabel);
+
+    showToast(`Création immédiate de l'édition ${timeLabel} (hors heure)...`);
+
+    const customToUse = overrideSubject 
+      ? Array.from(new Set([...customCategories, overrideSubject]))
+      : customCategories;
+
+    fetchNewsForHour(now.getHours(), true, {
+      cats: categories,
+      custom: customToUse,
+      vibe: todayVibe,
+      userBio: bio,
+      prov: activeProvider,
+      gKey: geminiKey
+    }, true);
+  };
+
   // Re-fetch automatically whenever selectedHour changes
   useEffect(() => {
-    fetchNewsForHour(selectedHour);
-  }, [selectedHour]);
+    if (!isInstantEditionSelected) {
+      fetchNewsForHour(selectedHour);
+    }
+  }, [selectedHour, isInstantEditionSelected]);
 
   // Handle toast notifications
   const showToast = (msg: string) => {
@@ -443,8 +565,22 @@ export default function App() {
       
       {/* HEADER BAR */}
       <Header
-        onOpenSettings={() => setPreferencesOpen(true)}
-        onRefresh={() => fetchNewsForHour(selectedHour, true)}
+        onOpenSettings={() => {
+          setPreferencesInitialTab("preferences");
+          setPreferencesOpen(true);
+        }}
+        onOpenLocation={() => {
+          setPreferencesInitialTab("location");
+          setPreferencesOpen(true);
+        }}
+        onRefresh={() => {
+          if (isInstantEditionSelected) {
+            handleCreateInstantArticles();
+          } else {
+            fetchNewsForHour(selectedHour, true);
+          }
+        }}
+        onInstantGenerate={() => handleCreateInstantArticles()}
         isGenerating={isGenerating}
         isAiMode={isAiMode}
         searchQuery={searchQuery}
@@ -461,19 +597,52 @@ export default function App() {
       {/* MAIN LAYOUT */}
       <main className="max-w-5xl w-full mx-auto p-4 md:px-8 md:py-6 pt-18 sm:pt-20 md:pt-20 flex-1 flex flex-col pb-8">
         
+        {/* BANNER DE LOCALISATION & JOURNAUX DE RÉFÉRENCE */}
+        <LocationMediaBanner
+          location={location}
+          onDetectLocation={handleDetectLocation}
+          isDetecting={isDetectingLocation}
+          onOpenLocationSettings={() => {
+            setPreferencesInitialTab("location");
+            setPreferencesOpen(true);
+          }}
+          theme={theme}
+        />
 
-
-        {/* TIMELINE DE SÉLECTION D'HEURES */}
+        {/* TIMELINE DE SÉLECTION D'HEURES & BOUTON DE CRÉATION HORS HEURE */}
         <div className={`mb-6 p-2 rounded-2xl border ${
           theme === "clair" ? "bg-white border-slate-200" : "bg-zinc-950/50 border-zinc-900"
         }`}>
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+            
+            {/* BOUTON PRINCIPAL D'ACTION: CRÉER DES ARTICLES HORS HEURE */}
+            <button
+              onClick={() => handleCreateInstantArticles()}
+              disabled={isGenerating}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 shrink-0 border ${
+                isInstantEditionSelected
+                  ? "bg-gradient-to-r from-amber-500 to-orange-600 text-white border-amber-400 shadow-lg shadow-orange-500/25"
+                  : "bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30"
+              }`}
+              title="Activer la création immédiate d'articles sans attendre l'heure"
+            >
+              <Zap className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin text-white" : "text-amber-400"}`} />
+              <span className="font-bold">
+                {isInstantEditionSelected && instantEditionTime
+                  ? `⚡ Édition Directe (${instantEditionTime})`
+                  : "⚡ Créer maintenant (Hors heure)"}
+              </span>
+              {isInstantEditionSelected && (
+                <span className="bg-white/25 text-[9px] px-1.5 py-0.2 rounded font-black uppercase">ACTIF</span>
+              )}
+            </button>
+
             <span className={`text-[10px] font-black font-mono uppercase tracking-wider pl-2 ${theme === "clair" ? "text-slate-400" : "text-white/35"}`}>
-              Historique :
+              Éditions :
             </span>
             <div className="flex gap-1.5">
               {hoursTimeline.map((hourVal) => {
-                const isSelected = selectedHour === hourVal;
+                const isSelected = !isInstantEditionSelected && selectedHour === hourVal;
                 const isCurrentLive = currentHourLocal === hourVal;
                 
                 let btnStyle = "";
@@ -489,6 +658,7 @@ export default function App() {
                   <button
                     key={hourVal}
                     onClick={() => {
+                      setIsInstantEditionSelected(false);
                       setSelectedHour(hourVal);
                       showToast(`Chargement de l'actualité de ${hourVal}h00`);
                     }}
@@ -508,6 +678,53 @@ export default function App() {
           </div>
         </div>
 
+        {/* ON-DEMAND INSTANT CREATION BANNER (HORS HEURE) */}
+        <div className={`mb-6 p-4 rounded-2xl border transition-all ${
+          isInstantEditionSelected
+            ? theme === "clair"
+              ? "bg-amber-50/80 border-amber-200 text-amber-950"
+              : "bg-amber-950/20 border-amber-900/40 text-amber-100"
+            : theme === "clair"
+            ? "bg-white border-slate-200 text-slate-800"
+            : "bg-zinc-950/60 border-zinc-900 text-zinc-200"
+        }`}>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className={`p-2.5 rounded-xl shrink-0 ${
+                isInstantEditionSelected
+                  ? "bg-amber-500 text-white shadow-md shadow-amber-500/20"
+                  : "bg-amber-500/10 text-amber-500 border border-amber-500/20"
+              }`}>
+                <Zap className={`w-4 h-4 ${isGenerating ? "animate-spin" : ""}`} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                    Création d'articles à la demande (Hors heure)
+                  </h4>
+                  {isInstantEditionSelected && (
+                    <span className="text-[10px] bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-2 py-0.2 rounded-full font-black uppercase">
+                      Édition {instantEditionTime}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] opacity-75 mt-0.5 leading-relaxed">
+                  Pas besoin d'attendre la prochaine heure pleine : déclenchez la rédaction de 15 nouveaux articles en temps réel selon vos thématiques.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => handleCreateInstantArticles()}
+              disabled={isGenerating}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white shadow-lg shadow-orange-500/20 transition flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
+            >
+              <Zap className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />
+              <span>{isGenerating ? "Création en cours..." : "Créer de nouveaux articles"}</span>
+            </button>
+          </div>
+        </div>
+
         {/* HOURLY TICKER FLASH HEADLINE */}
         <div className={`mb-8 px-5 py-3.5 rounded-2xl border flex items-start gap-3 relative overflow-hidden ${
           theme === "clair" 
@@ -517,7 +734,7 @@ export default function App() {
           <div className="absolute right-0 top-0 w-32 h-32 bg-blue-600/5 rounded-full blur-2xl pointer-events-none"></div>
           <span className="bg-blue-600/10 text-blue-500 text-[10px] font-mono font-black border border-blue-500/20 px-2 py-0.5 rounded uppercase shrink-0 mt-0.5 flex items-center gap-1">
             <Sparkles className="w-2.5 h-2.5" />
-            Flash {selectedHour}h
+            {isInstantEditionSelected && instantEditionTime ? `Flash Direct ${instantEditionTime}` : `Flash ${selectedHour}h`}
           </span>
           <p className="text-xs md:text-sm font-medium leading-relaxed italic opacity-95">
             « {getHourlyFlashSummary(selectedHour)} »
@@ -806,6 +1023,8 @@ export default function App() {
             geminiKey={geminiKey}
             claudeKey=""
             mistralKey=""
+            location={location}
+            initialTab={preferencesInitialTab}
             onSave={handleSavePreferences}
             theme={theme}
           />

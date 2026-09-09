@@ -3,6 +3,7 @@ import { Heart, Share2, Bookmark, ArrowRight, Clock, Sparkles, ExternalLink } fr
 import { motion } from "motion/react";
 import { Article } from "../types";
 import { getCategoryFallbackImage } from "../data/mockArticles";
+import { sanitizeText } from "../utils/textCleaner";
 
 export function getSmartArticleUrl(article: { source: string; title: string; url?: string }): string {
   // Check if article has a valid deep link (with a path other than a blank root)
@@ -162,12 +163,12 @@ export default function NewsArticleCard({
             onClick={() => onSelect(article)}
             className={`text-lg sm:text-xl lg:text-2xl font-extrabold leading-normal font-display cursor-pointer line-clamp-3 transition duration-200 ${titleTextClass}`}
           >
-            {article.title}
+            {sanitizeText(article.title)}
           </h2>
 
           {/* Summary */}
           <p className={`mt-4 text-xs sm:text-sm lg:text-base leading-relaxed font-sans line-clamp-3 ${summaryTextClass}`}>
-            {article.summary}
+            {sanitizeText(article.summary)}
           </p>
         </div>
 

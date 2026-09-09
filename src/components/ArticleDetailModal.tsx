@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from "react";
-import { X, Sparkles, Volume2, Bookmark, Heart, Play, Square, AlertCircle, RefreshCw, Trophy, AlertTriangle, Compass, Youtube, BookOpen, ArrowRight, ExternalLink, Clock } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { X, Sparkles, Volume2, Bookmark, Heart, Play, Square, AlertCircle, RefreshCw, Trophy, AlertTriangle, Compass, Youtube, BookOpen, ArrowRight, ExternalLink, Clock, MessageSquare, Send, User, Bot, HelpCircle, CornerDownRight, RotateCcw, Download, FileCode, Check } from "lucide-react";
 import { Article } from "../types";
 import { getCategoryFallbackImage } from "../data/mockArticles";
 import { getSmartArticleUrl } from "./NewsArticleCard";
+import { downloadArticleAsHtml } from "../utils/exportHtml";
+import { sanitizeArticle, sanitizeText } from "../utils/textCleaner";
 
 interface ArticleDetailModalProps {
   article: Article | null;
@@ -12,6 +14,14 @@ interface ArticleDetailModalProps {
   onToggleBookmark: (id: string) => void;
   onUpdateImage: (id: string, newUrl: string, isAi: boolean, licensingText: string) => void;
   theme: "clair" | "sombre";
+}
+
+interface QAMessage {
+  id: string;
+  role: "user" | "journalist";
+  text: string;
+  time: string;
+  journalistTitle?: string;
 }
 
 export default function ArticleDetailModal({
@@ -27,6 +37,14 @@ export default function ArticleDetailModal({
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [speechUtterance, setSpeechUtterance] = useState<SpeechSynthesisUtterance | null>(null);
+
+  // Interactive Journalist Q&A state
+  const [qaList, setQaList] = useState<QAMessage[]>([]);
+  const [questionInput, setQuestionInput] = useState("");
+  const [isAsking, setIsAsking] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [hasExportedHtml, setHasExportedHtml] = useState(false);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
   
   // Prime and cache the list of French voices asynchronously
   useEffect(() => {
@@ -46,15 +64,28 @@ export default function ArticleDetailModal({
   useEffect(() => {
     setSummary(null);
     setLoadingSummary(false);
+    setQaList([]);
+    setQuestionInput("");
+    setIsAsking(false);
     
     // Stop speaking if modal is closed
-    if (!isOpen && isPlayingAudio) {
+    if (!isOpen && (isPlayingAudio || speakingMessageId)) {
       window.speechSynthesis.cancel();
       setIsPlayingAudio(false);
+      setSpeakingMessageId(null);
     }
   }, [article, isOpen]);
 
+  // Auto-scroll to bottom of discussion when a new message is added
+  useEffect(() => {
+    if (qaList.length > 0) {
+      chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [qaList, isAsking]);
+
   if (!isOpen || !article) return null;
+
+  const currentArticle = sanitizeArticle(article);
 
   // Handles generating the 3-bullet summary via our Server API proxy
   const handleGenerateSummary = async () => {
@@ -76,8 +107,8 @@ export default function ArticleDetailModal({
           "x-active-provider": activeProvider
         },
         body: JSON.stringify({
-          title: article.title,
-          content: article.content
+          title: currentArticle.title,
+          content: currentArticle.content
         })
       });
       const data = await res.json();
@@ -94,6 +125,124 @@ export default function ArticleDetailModal({
     }
   };
 
+  // Handles sending a question to the dedicated investigative journalist
+  const handleAskQuestion = async (customQ?: string) => {
+    const textToSend = (customQ || questionInput).trim();
+    if (!textToSend || isAsking) return;
+
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}h${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const userMsg: QAMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      text: textToSend,
+      time: timeStr
+    };
+
+    setQaList(prev => [...prev, userMsg]);
+    setQuestionInput("");
+    setIsAsking(true);
+
+    try {
+      const geminiKey = localStorage.getItem("myNewsGeminiKey") || "";
+      const claudeKey = localStorage.getItem("myNewsClaudeKey") || "";
+      const mistralKey = localStorage.getItem("myNewsMistralKey") || "";
+      const activeProvider = localStorage.getItem("myNewsActiveProvider") || "gemini";
+
+      // Build short history for multi-turn context
+      const historyPayload = qaList.map(item => ({
+        role: item.role === "user" ? "user" : "assistant",
+        text: item.text
+      }));
+
+      const res = await fetch("/api/ask-journalist", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-gemini-key": geminiKey,
+          "x-claude-key": claudeKey,
+          "x-mistral-key": mistralKey,
+          "x-active-provider": activeProvider
+        },
+        body: JSON.stringify({
+          articleTitle: article.title,
+          articleCategory: article.category,
+          articleContent: article.content,
+          question: textToSend,
+          history: historyPayload
+        })
+      });
+
+      const data = await res.json();
+      const journalistMsg: QAMessage = {
+        id: `journ-${Date.now()}`,
+        role: "journalist",
+        text: data.answer || "Nos équipes restent à votre disposition pour tout complément d'information sur ce sujet.",
+        time: timeStr,
+        journalistTitle: data.journalistTitle || "Grand Reporter Focus News"
+      };
+
+      setQaList(prev => [...prev, journalistMsg]);
+    } catch (err) {
+      console.error("Error asking journalist:", err);
+      const fallbackMsg: QAMessage = {
+        id: `journ-${Date.now()}`,
+        role: "journalist",
+        text: "Sur ce dossier, nos équipes confirment que les éléments clés portent sur les transformations structurelles et l'impact opérationnel. N'hésitez pas à reformuler votre question.",
+        time: timeStr,
+        journalistTitle: "Rédaction Focus News"
+      };
+      setQaList(prev => [...prev, fallbackMsg]);
+    } finally {
+      setIsAsking(false);
+    }
+  };
+
+  // Speaks out a specific journalist response
+  const handleSpeakJournalistResponse = (msgId: string, text: string) => {
+    if (speakingMessageId === msgId) {
+      window.speechSynthesis.cancel();
+      setSpeakingMessageId(null);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "fr-FR";
+    utterance.rate = 1.05;
+
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      const voices = window.speechSynthesis.getVoices();
+      const frVoices = voices.filter(v => v.lang.toLowerCase().startsWith("fr"));
+      if (frVoices.length > 0) {
+        const maleNames = ["thomas", "paul", "nicolas", "claude", "daniel", "jean", "alain", "gilles", "henri", "mathieu"];
+        const maleFrVoice = frVoices.find(v => maleNames.some(name => v.name.toLowerCase().includes(name)));
+        const selectedVoice = maleFrVoice || frVoices[0];
+        if (selectedVoice) utterance.voice = selectedVoice;
+      }
+    }
+
+    utterance.onend = () => setSpeakingMessageId(null);
+    utterance.onerror = () => setSpeakingMessageId(null);
+
+    setSpeakingMessageId(msgId);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // Initiates downloading of beautifully formatted HTML report (article + insights + journalist Q&A)
+  const handleExportHtml = () => {
+    if (!currentArticle) return;
+    downloadArticleAsHtml({
+      article: currentArticle,
+      summary,
+      qaList,
+      theme
+    });
+    setHasExportedHtml(true);
+    setTimeout(() => setHasExportedHtml(false), 2500);
+  };
+
   // Uses native Web Speech Synthesis for high-fidelity offline instant voiceovers
   const handleToggleAudio = () => {
     if (isPlayingAudio) {
@@ -101,7 +250,7 @@ export default function ArticleDetailModal({
       setIsPlayingAudio(false);
     } else {
       // Setup Text
-      const textToRead = `${article.title}. ${article.content}`;
+      const textToRead = `${currentArticle.title}. ${currentArticle.content}`;
       const utterance = new SpeechSynthesisUtterance(textToRead);
       utterance.lang = "fr-FR"; // Correct French locale
       
@@ -111,10 +260,7 @@ export default function ArticleDetailModal({
         const frVoices = voices.filter(v => v.lang.toLowerCase().startsWith("fr"));
         
         if (frVoices.length > 0) {
-          // Priority List for Masculine French Voices:
-          // Thomas (macOS/iOS Premium), Paul (Windows), Claude (Windows), Nicolas (iOS/macOS), Gilles/Alain/Daniel/Jean
           const maleNames = ["thomas", "paul", "nicolas", "claude", "daniel", "jean", "alain", "gilles", "henri", "mathieu"];
-          
           const maleFrVoice = frVoices.find(v => {
             const nameLower = v.name.toLowerCase();
             return maleNames.some(name => nameLower.includes(name));
@@ -122,17 +268,14 @@ export default function ArticleDetailModal({
           
           const googleVoice = frVoices.find(v => v.name.toLowerCase().includes("google"));
           const premiumVoice = frVoices.find(v => v.name.toLowerCase().includes("premium") || v.name.toLowerCase().includes("natural"));
-          
           const selectedVoice = maleFrVoice || googleVoice || premiumVoice || frVoices.find(v => v.localService) || frVoices[0];
           
           if (selectedVoice) {
             utterance.voice = selectedVoice;
-            console.log("SpeechSynthesis selected voice:", selectedVoice.name);
           }
         }
       }
 
-      // Elocution coefficient set to 1.05 for a professional and fluid reading pace
       utterance.rate = 1.05;
       utterance.pitch = 1.0;
       
@@ -149,6 +292,7 @@ export default function ArticleDetailModal({
       setIsPlayingAudio(true);
     }
   };
+
   const articleImg = article.img || getCategoryFallbackImage(article.category);
 
   // Theme configuration values
@@ -386,7 +530,33 @@ export default function ArticleDetailModal({
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Export HTML Button */}
+              <button
+                id="modal-export-html-button"
+                onClick={handleExportHtml}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer transition ${
+                  hasExportedHtml
+                    ? "bg-emerald-600 border-emerald-600 text-white font-bold"
+                    : theme === "clair"
+                    ? "bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                    : "bg-blue-950/30 border-blue-900/50 text-blue-300 hover:bg-blue-900/40"
+                }`}
+                title="Exporter l'article et son approfondissement dans un fichier HTML soigné"
+              >
+                {hasExportedHtml ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Exporté !</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Exporter HTML</span>
+                  </>
+                )}
+              </button>
+
               {/* Native Voiceover Button */}
               <button
                 id="modal-voiceover-button"
@@ -481,23 +651,23 @@ export default function ArticleDetailModal({
                 Dépêches & Compléments d'Actualité (Reuters & RSS)
               </h3>
 
-              {article.scandals && article.scandals.trim() !== "" && (
+              {currentArticle.scandals && currentArticle.scandals.trim() !== "" && (
                 <div id="realtimenews-scandals-card" className={scandalsCardClass}>
                   <div className="bg-red-500/10 p-2 rounded-lg text-red-500 shrink-0 mt-0.5">
                     <AlertTriangle className="w-5 h-5" />
                   </div>
                   <div className="flex-1">
                     <h4 className={`text-xs font-bold uppercase tracking-wider font-mono ${scandalsTitleClass}`}>Polémiques, Controverses & Enquêtes</h4>
-                    <p className={scandalsBodyClass}>{article.scandals}</p>
+                    <p className={scandalsBodyClass}>{currentArticle.scandals}</p>
                   </div>
                 </div>
               )}
 
               <div id="realtimenews-video-section" className="mt-3 pt-3 border-t border-dashed border-white/10">
                 {(() => {
-                  const querySearch = article.youtubeUrl && article.youtubeUrl.trim() !== ""
-                    ? article.youtubeUrl
-                    : `https://www.youtube.com/results?search_query=${encodeURIComponent(article.title)}`;
+                  const querySearch = currentArticle.youtubeUrl && currentArticle.youtubeUrl.trim() !== ""
+                    ? currentArticle.youtubeUrl
+                    : `https://www.youtube.com/results?search_query=${encodeURIComponent(currentArticle.title)}`;
                   return (
                     <a
                       id="realtimenews-youtube-link"
@@ -530,11 +700,232 @@ export default function ArticleDetailModal({
 
           {/* Full Content Body */}
           <div id="modal-article-full-content" className={fullTextClass}>
-            {article.content.split("\n\n").map((para, idx) => (
+            {currentArticle.content.split("\n\n").map((para, idx) => (
               <p key={idx} className="indent-4 text-justify leading-relaxed">
                 {para}
               </p>
             ))}
+          </div>
+
+          {/* INTERACTIVE JOURNALIST Q&A / INVESTIGATION SPACE */}
+          <div id="journalist-investigation-section" className={`mt-8 pt-6 border-t rounded-2xl p-5 sm:p-6 transition-all ${
+            theme === "clair"
+              ? "bg-slate-50/80 border-slate-200 shadow-sm"
+              : "bg-zinc-950/60 border-zinc-850 shadow-inner"
+          }`}>
+            {/* Header with Journalist Persona */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-dashed border-slate-200 dark:border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-600/30 shrink-0">
+                  <MessageSquare className="w-4.5 h-4.5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className={`text-sm font-bold tracking-tight ${
+                      theme === "clair" ? "text-slate-900" : "text-white"
+                    }`}>
+                      Interroger la Rédaction
+                    </h3>
+                    <span className="bg-blue-600/10 text-blue-600 dark:text-blue-400 font-mono text-[9px] font-bold px-2 py-0.5 rounded border border-blue-500/20 uppercase flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Grand Reporter Disponible
+                    </span>
+                  </div>
+                  <p className={`text-[11px] mt-0.5 ${
+                    theme === "clair" ? "text-slate-500" : "text-white/50"
+                  }`}>
+                    Posez vos questions pour creuser ce sujet, comprendre les coulisses ou clarifier un point précis.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                <button
+                  id="journalist-export-thread-button"
+                  onClick={handleExportHtml}
+                  className={`text-[10px] font-mono font-semibold px-2.5 py-1 rounded-lg border transition cursor-pointer flex items-center gap-1.5 ${
+                    hasExportedHtml
+                      ? "bg-emerald-600 border-emerald-600 text-white font-bold"
+                      : theme === "clair"
+                      ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                      : "border-blue-900/40 bg-blue-950/30 text-blue-300 hover:bg-blue-900/40"
+                  }`}
+                  title="Exporter l'article et tout le fil d'investigation en fichier HTML"
+                >
+                  <Download className="w-3 h-3" />
+                  <span>{hasExportedHtml ? "Exporté !" : "Exporter en HTML"}</span>
+                </button>
+
+                {qaList.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setQaList([]);
+                      if (speakingMessageId) {
+                        window.speechSynthesis.cancel();
+                        setSpeakingMessageId(null);
+                      }
+                    }}
+                    className={`text-[10px] font-mono font-semibold px-2.5 py-1 rounded-lg border transition cursor-pointer flex items-center gap-1 ${
+                      theme === "clair"
+                        ? "border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+                        : "border-white/10 text-white/40 hover:text-white hover:bg-white/5"
+                    }`}
+                    title="Effacer la discussion"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Réinitialiser</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Quick Starter Question Chips */}
+            <div className="mb-4">
+              <span className={`text-[10px] font-mono uppercase tracking-wider block mb-2 font-bold ${
+                theme === "clair" ? "text-slate-400" : "text-white/40"
+              }`}>
+                Suggestions de questions :
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  "Quels sont les enjeux clés ?",
+                  "Quelles sont les critiques ou limites ?",
+                  "Quel impact concret au quotidien ?",
+                  "Quelles sont les prochaines étapes ?"
+                ].map((sug, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleAskQuestion(sug)}
+                    disabled={isAsking}
+                    className={`text-xs px-3 py-1.5 rounded-xl border font-medium transition-all text-left flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                      theme === "clair"
+                        ? "bg-white hover:bg-blue-50/70 border-slate-200 hover:border-blue-300 text-slate-700 hover:text-blue-700 shadow-2xs"
+                        : "bg-zinc-900/80 hover:bg-blue-950/40 border-zinc-800 hover:border-blue-500/40 text-gray-300 hover:text-blue-200"
+                    }`}
+                  >
+                    <CornerDownRight className="w-3 h-3 text-blue-500 shrink-0" />
+                    <span>{sug}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Discussion Thread */}
+            {qaList.length > 0 && (
+              <div className="space-y-4 mb-4 max-h-[380px] overflow-y-auto pr-1">
+                {qaList.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`flex flex-col ${item.role === "user" ? "items-end" : "items-start"}`}
+                  >
+                    <div className={`flex items-start gap-2.5 max-w-[90%] sm:max-w-[85%] ${
+                      item.role === "user" ? "flex-row-reverse" : "flex-row"
+                    }`}>
+                      {/* Avatar */}
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs shrink-0 mt-0.5 ${
+                        item.role === "user"
+                          ? "bg-slate-700 text-white font-bold"
+                          : "bg-blue-600 text-white shadow-sm"
+                      }`}>
+                        {item.role === "user" ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
+                      </div>
+
+                      {/* Message Bubble */}
+                      <div className={`rounded-2xl p-3.5 text-xs sm:text-sm leading-relaxed ${
+                        item.role === "user"
+                          ? "bg-blue-600 text-white rounded-tr-xs"
+                          : theme === "clair"
+                          ? "bg-white border border-slate-200 text-slate-800 rounded-tl-xs shadow-xs"
+                          : "bg-zinc-900 border border-zinc-800 text-gray-100 rounded-tl-xs shadow-sm"
+                      }`}>
+                        {/* Journalist Header inside message */}
+                        {item.role === "journalist" && (
+                          <div className="flex items-center justify-between gap-3 mb-1.5 pb-1 border-b border-slate-100 dark:border-white/5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider font-mono text-blue-600 dark:text-blue-400">
+                              {item.journalistTitle || "Grand Reporter Focus News"}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-[10px] font-mono opacity-50 ${theme === "clair" ? "text-slate-500" : "text-white"}`}>
+                                {item.time}
+                              </span>
+                              <button
+                                onClick={() => handleSpeakJournalistResponse(item.id, item.text)}
+                                className={`p-1 rounded-md transition cursor-pointer ${
+                                  speakingMessageId === item.id
+                                    ? "bg-emerald-500 text-white font-bold"
+                                    : theme === "clair"
+                                    ? "hover:bg-slate-100 text-slate-500"
+                                    : "hover:bg-white/10 text-white/60"
+                                }`}
+                                title={speakingMessageId === item.id ? "Arrêter la lecture" : "Écouter la réponse du journaliste"}
+                              >
+                                <Volume2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="whitespace-pre-line font-sans">
+                          {item.text}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Animated Journalist Typing Indicator */}
+                {isAsking && (
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    </div>
+                    <div className={`p-3 rounded-2xl rounded-tl-xs text-xs font-mono flex items-center gap-2 ${
+                      theme === "clair" ? "bg-white border border-slate-200 text-slate-600" : "bg-zinc-900 border border-zinc-800 text-zinc-300"
+                    }`}>
+                      <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+                      <span>Le journaliste consulte les sources et formule sa réponse...</span>
+                    </div>
+                  </div>
+                )}
+                <div ref={chatBottomRef} />
+              </div>
+            )}
+
+            {/* Input form */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleAskQuestion();
+              }}
+              className="relative flex items-center gap-2 mt-2"
+            >
+              <input
+                id="journalist-question-input"
+                type="text"
+                value={questionInput}
+                onChange={(e) => setQuestionInput(e.target.value)}
+                placeholder="Posez votre question au journaliste pour approfondir..."
+                disabled={isAsking}
+                className={`w-full px-4 py-3 rounded-xl text-xs sm:text-sm border transition outline-none pr-12 ${
+                  theme === "clair"
+                    ? "bg-white border-slate-300 focus:border-blue-500 text-slate-900 placeholder:text-slate-400"
+                    : "bg-zinc-900 border-zinc-800 focus:border-blue-500 text-white placeholder:text-zinc-500"
+                }`}
+              />
+              <button
+                id="journalist-submit-question-btn"
+                type="submit"
+                disabled={isAsking || !questionInput.trim()}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition disabled:opacity-40 disabled:hover:bg-blue-600 cursor-pointer"
+                title="Envoyer la question"
+              >
+                {isAsking ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+              </button>
+            </form>
           </div>
 
         </div>

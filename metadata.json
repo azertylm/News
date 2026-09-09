@@ -1,6 +1,6 @@
 {
   "name": "Focus News",
   "description": "Votre flux d'actualités personnalisé, intelligent et propulsé par l'IA selon vos propres centres d'intérêt.",
-  "requestFramePermissions": ["microphone"],
+  "requestFramePermissions": ["microphone", "geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

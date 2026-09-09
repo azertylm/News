@@ -26,6 +26,14 @@ export interface Article {
   externalLinks?: { label: string; url: string }[];
 }
 
+export interface UserLocation {
+  country: string;
+  countryCode: string;
+  region: string;
+  city: string;
+  preferredSources: string[];
+}
+
 export interface UserPreferences {
   categories: string[];
   customCategories: string[];
@@ -35,5 +43,6 @@ export interface UserPreferences {
   geminiKey?: string;
   claudeKey?: string;
   mistralKey?: string;
+  location?: UserLocation;
 }
 
