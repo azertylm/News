@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { Sparkles, Heart, Bookmark, SlidersHorizontal, Info, Clock, Play, Disc, Zap, PlusCircle } from "lucide-react";
+import { Sparkles, Heart, Bookmark, SlidersHorizontal, Info, Clock, Play, Disc, Zap, PlusCircle, FileText, Check } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Article, UserLocation } from "./types";
 import { sanitizeArticle, sanitizeText } from "./utils/textCleaner";
 import { getHourlyFlashSummary, getArticlesForHour, getInstantArticles } from "./data/hourlyNews";
+import { exportEditionToPdf } from "./utils/exportPdf";
 import Header from "./components/Header";
 import PreferencesModal from "./components/PreferencesModal";
 import LocationMediaBanner from "./components/LocationMediaBanner";
@@ -77,6 +78,23 @@ export default function App() {
   // Simple toast state for notifications
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [hasApiKey, setHasApiKey] = useState(true);
+  const [hasExportedEditionPdf, setHasExportedEditionPdf] = useState(false);
+
+  const handleExportCurrentEditionPdf = () => {
+    const listToExport = sortedArticles && sortedArticles.length > 0 ? sortedArticles : articles;
+    if (listToExport.length === 0) {
+      showToast("Aucun article à exporter pour cette édition.");
+      return;
+    }
+    exportEditionToPdf({
+      articles: listToExport,
+      editionHour: selectedHour,
+      region: location.region
+    });
+    setHasExportedEditionPdf(true);
+    showToast("📄 Journal complet généré et téléchargé en PDF !");
+    setTimeout(() => setHasExportedEditionPdf(false), 2500);
+  };
 
   // Live ticking clock useEffect
   useEffect(() => {
@@ -779,17 +797,45 @@ export default function App() {
             </button>
           </div>
 
-          <button
-            onClick={() => setPreferencesOpen(true)}
-            className={
-              theme === "clair"
-                ? "flex items-center gap-1.5 text-xs text-slate-600 hover:text-blue-600 font-bold cursor-pointer py-1.5 px-3 rounded-lg border border-slate-200 bg-white shadow-sm transition"
-                : "flex items-center gap-1.5 text-xs text-white/50 hover:text-blue-400 font-bold cursor-pointer py-1.5 px-3 rounded-lg border border-white/5 bg-white/5 transition"
-            }
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-            <span>Filtres thématiques</span>
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Button to export full current edition as a multi-page PDF newspaper */}
+            <button
+              id="download-edition-pdf-button"
+              onClick={handleExportCurrentEditionPdf}
+              className={`flex items-center gap-1.5 text-xs font-bold cursor-pointer py-1.5 px-3 rounded-lg border transition shadow-sm ${
+                hasExportedEditionPdf
+                  ? "bg-rose-600 border-rose-600 text-white"
+                  : theme === "clair"
+                  ? "border-rose-200 bg-rose-50/80 hover:bg-rose-100 text-rose-700"
+                  : "border-rose-900/40 bg-rose-950/25 hover:bg-rose-900/40 text-rose-300"
+              }`}
+              title="Télécharger l'intégralité de l'édition actuelle en format PDF (Revue de presse complète)"
+            >
+              {hasExportedEditionPdf ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-white" />
+                  <span>PDF Prêt !</span>
+                </>
+              ) : (
+                <>
+                  <FileText className="w-3.5 h-3.5 text-rose-500" />
+                  <span>Journal en PDF</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => setPreferencesOpen(true)}
+              className={
+                theme === "clair"
+                  ? "flex items-center gap-1.5 text-xs text-slate-600 hover:text-blue-600 font-bold cursor-pointer py-1.5 px-3 rounded-lg border border-slate-200 bg-white shadow-sm transition"
+                  : "flex items-center gap-1.5 text-xs text-white/50 hover:text-blue-400 font-bold cursor-pointer py-1.5 px-3 rounded-lg border border-white/5 bg-white/5 transition"
+              }
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>Filtres thématiques</span>
+            </button>
+          </div>
         </div>
 
         {/* PREFERENCES BANNER & TOGGLE CONTROL */}

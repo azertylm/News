@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, Sparkles, Volume2, Bookmark, Heart, Play, Square, AlertCircle, RefreshCw, Trophy, AlertTriangle, Compass, Youtube, BookOpen, ArrowRight, ExternalLink, Clock, MessageSquare, Send, User, Bot, HelpCircle, CornerDownRight, RotateCcw, Download, FileCode, Check } from "lucide-react";
+import { X, Sparkles, Volume2, Bookmark, Heart, Play, Square, AlertCircle, RefreshCw, Trophy, AlertTriangle, Compass, Youtube, BookOpen, ArrowRight, ExternalLink, Clock, MessageSquare, Send, User, Bot, HelpCircle, CornerDownRight, RotateCcw, Download, FileCode, Check, FileText, Type, ZoomIn, ZoomOut } from "lucide-react";
 import { Article } from "../types";
 import { getCategoryFallbackImage } from "../data/mockArticles";
 import { getSmartArticleUrl } from "./NewsArticleCard";
 import { downloadArticleAsHtml } from "../utils/exportHtml";
+import { exportArticleToPdf } from "../utils/exportPdf";
 import { sanitizeArticle, sanitizeText } from "../utils/textCleaner";
 
 interface ArticleDetailModalProps {
@@ -44,6 +45,31 @@ export default function ArticleDetailModal({
   const [isAsking, setIsAsking] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [hasExportedHtml, setHasExportedHtml] = useState(false);
+  const [hasExportedPdf, setHasExportedPdf] = useState(false);
+
+  // Font scale state for comfortable HTML reading (persisted in localStorage)
+  const [fontScale, setFontScale] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("focusNewsArticleFontScale");
+      if (saved) {
+        const parsed = parseFloat(saved);
+        if (!isNaN(parsed) && parsed >= 0.85 && parsed <= 2.2) return parsed;
+      }
+    } catch {}
+    return 1.0;
+  });
+
+  const handleUpdateFontScale = (newScale: number) => {
+    const clamped = Math.max(0.85, Math.min(2.0, Math.round(newScale * 100) / 100));
+    setFontScale(clamped);
+    try {
+      localStorage.setItem("focusNewsArticleFontScale", clamped.toString());
+    } catch {}
+  };
+
+  const handleStepFontScale = (delta: number) => {
+    handleUpdateFontScale(fontScale + delta);
+  };
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   
   // Prime and cache the list of French voices asynchronously
@@ -241,6 +267,18 @@ export default function ArticleDetailModal({
     });
     setHasExportedHtml(true);
     setTimeout(() => setHasExportedHtml(false), 2500);
+  };
+
+  // Initiates direct client-side PDF document generation and download
+  const handleExportPdf = () => {
+    if (!currentArticle) return;
+    exportArticleToPdf({
+      article: currentArticle,
+      summary,
+      qaList
+    });
+    setHasExportedPdf(true);
+    setTimeout(() => setHasExportedPdf(false), 2500);
   };
 
   // Uses native Web Speech Synthesis for high-fidelity offline instant voiceovers
@@ -505,9 +543,13 @@ export default function ArticleDetailModal({
 
           {/* Title right under banner inside scroll */}
           <div>
-            <h1 id="modal-article-title" className={`text-2xl sm:text-3xl lg:text-4xl font-extrabold font-display leading-tight tracking-tight ${
-              theme === "clair" ? "text-slate-900" : "text-white"
-            }`}>
+            <h1
+              id="modal-article-title"
+              className={`font-extrabold font-display leading-tight tracking-tight transition-[font-size] duration-150 ${
+                theme === "clair" ? "text-slate-900" : "text-white"
+              }`}
+              style={{ fontSize: `${Math.min(2.7, 1.875 * Math.max(1, fontScale * 0.95))}rem` }}
+            >
               {article.title}
             </h1>
           </div>
@@ -531,6 +573,40 @@ export default function ArticleDetailModal({
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Font Size Scaling Pill (A- / 100% / A+) */}
+              <div
+                id="modal-font-scaler"
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-xl border text-xs font-semibold transition ${
+                  theme === "clair"
+                    ? "bg-slate-100/90 border-slate-200 text-slate-700"
+                    : "bg-zinc-900 border-zinc-800 text-zinc-300"
+                }`}
+                title="Agrandir ou réduire la taille de la police de caractère"
+              >
+                <Type className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                <button
+                  id="modal-font-dec"
+                  onClick={() => handleStepFontScale(-0.15)}
+                  disabled={fontScale <= 0.88}
+                  className="px-1.5 py-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-35 cursor-pointer font-bold transition"
+                  title="Diminuer la police"
+                >
+                  A-
+                </button>
+                <span className="font-mono text-[11px] font-bold text-blue-600 dark:text-blue-400 min-w-[36px] text-center">
+                  {Math.round(fontScale * 100)}%
+                </span>
+                <button
+                  id="modal-font-inc"
+                  onClick={() => handleStepFontScale(0.15)}
+                  disabled={fontScale >= 1.95}
+                  className="px-1.5 py-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-35 cursor-pointer font-bold transition"
+                  title="Agrandir la police"
+                >
+                  A+
+                </button>
+              </div>
+
               {/* Export HTML Button */}
               <button
                 id="modal-export-html-button"
@@ -542,7 +618,7 @@ export default function ArticleDetailModal({
                     ? "bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
                     : "bg-blue-950/30 border-blue-900/50 text-blue-300 hover:bg-blue-900/40"
                 }`}
-                title="Exporter l'article et son approfondissement dans un fichier HTML soigné"
+                title="Exporter l'article dans un fichier HTML interactif avec loupe de texte intégrée"
               >
                 {hasExportedHtml ? (
                   <>
@@ -553,6 +629,32 @@ export default function ArticleDetailModal({
                   <>
                     <Download className="w-3.5 h-3.5" />
                     <span>Exporter HTML</span>
+                  </>
+                )}
+              </button>
+
+              {/* Export PDF Button */}
+              <button
+                id="modal-export-pdf-button"
+                onClick={handleExportPdf}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer transition ${
+                  hasExportedPdf
+                    ? "bg-rose-600 border-rose-600 text-white font-bold"
+                    : theme === "clair"
+                    ? "bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
+                    : "bg-rose-950/30 border-rose-900/50 text-rose-300 hover:bg-rose-900/40"
+                }`}
+                title="Créer un fichier PDF haute qualité de cet article"
+              >
+                {hasExportedPdf ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>PDF créé !</span>
+                  </>
+                ) : (
+                  <>
+                    <FileText className="w-3.5 h-3.5 text-rose-500" />
+                    <span>Créer un PDF</span>
                   </>
                 )}
               </button>
@@ -626,9 +728,9 @@ export default function ArticleDetailModal({
             )}
 
             {summary && (
-              <ul className="space-y-1.5">
+              <ul className="space-y-1.5" style={{ fontSize: `${0.875 * fontScale}rem` }}>
                 {summary.map((point, index) => (
-                  <li key={index} className="flex gap-1.5 text-xs">
+                  <li key={index} className="flex gap-1.5">
                     <span className="text-blue-600 mt-1 shrink-0">•</span>
                     <span className={summaryLinesClass}>{point}</span>
                   </li>
@@ -701,7 +803,11 @@ export default function ArticleDetailModal({
           {/* Full Content Body */}
           <div id="modal-article-full-content" className={fullTextClass}>
             {currentArticle.content.split("\n\n").map((para, idx) => (
-              <p key={idx} className="indent-4 text-justify leading-relaxed">
+              <p
+                key={idx}
+                className="indent-4 text-justify leading-relaxed transition-[font-size] duration-150"
+                style={{ fontSize: `${1.125 * fontScale}rem`, lineHeight: 1.85 }}
+              >
                 {para}
               </p>
             ))}

@@ -167,6 +167,7 @@ export function generateArticleHtmlDocument({
   <title>${escapeHtml(article.title)} | Focus News</title>
   <style>
     :root {
+      --font-scale: 1;
       --bg: #f8fafc;
       --card-bg: #ffffff;
       --text-main: #0f172a;
@@ -204,28 +205,35 @@ export function generateArticleHtmlDocument({
       line-height: 1.65;
       padding: 40px 20px;
       -webkit-font-smoothing: antialiased;
+      transition: background-color 0.2s ease, color 0.2s ease;
     }
 
     .container {
-      max-width: 860px;
+      max-width: 900px;
       margin: 0 auto;
     }
 
-    /* Print & Export Bar */
+    /* Print, Font Size & Export Bar */
     .action-bar {
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
+      gap: 14px;
       margin-bottom: 24px;
-      padding: 12px 20px;
+      padding: 14px 20px;
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      position: sticky;
+      top: 16px;
+      z-index: 100;
     }
 
     .brand {
       font-weight: 900;
-      font-size: 16px;
+      font-size: 17px;
       text-transform: uppercase;
       letter-spacing: 1px;
       display: flex;
@@ -237,23 +245,91 @@ export function generateArticleHtmlDocument({
       color: var(--primary);
     }
 
+    /* Font Size Controls Group */
+    .font-size-control-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--primary-light);
+      padding: 4px 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(37, 99, 235, 0.2);
+    }
+
+    .font-control-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .font-btn-pill {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 5px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      min-width: 32px;
+    }
+
+    .font-btn-pill:hover {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+
+    .font-btn-pill.active {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
+    }
+
+    .font-scale-indicator {
+      font-size: 12px;
+      font-weight: 800;
+      font-mono: monospace;
+      color: var(--primary);
+      min-width: 44px;
+      text-align: center;
+    }
+
+    .actions-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
     .print-btn {
       background: var(--primary);
       color: white;
       border: none;
-      padding: 8px 16px;
-      border-radius: 8px;
+      padding: 9px 18px;
+      border-radius: 10px;
       font-size: 13px;
-      font-weight: 600;
+      font-weight: 700;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      transition: opacity 0.2s;
+      gap: 7px;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+      transition: all 0.2s;
     }
 
     .print-btn:hover {
-      opacity: 0.9;
+      opacity: 0.92;
+      transform: translateY(-1px);
     }
 
     /* Main Article Container */
@@ -268,36 +344,37 @@ export function generateArticleHtmlDocument({
 
     .article-cover {
       width: 100%;
-      height: 320px;
+      height: 360px;
       object-fit: cover;
       display: block;
       border-bottom: 1px solid var(--border);
     }
 
     .article-content {
-      padding: 40px;
+      padding: 44px 40px;
     }
 
     .category-badge {
       display: inline-block;
       background: var(--primary);
       color: white;
-      font-size: 11px;
+      font-size: calc(11px * var(--font-scale));
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      padding: 4px 10px;
-      border-radius: 6px;
-      margin-bottom: 16px;
+      padding: 5px 12px;
+      border-radius: 8px;
+      margin-bottom: 18px;
     }
 
     .article-title {
-      font-size: 32px;
+      font-size: calc(32px * var(--font-scale));
       font-weight: 800;
       line-height: 1.25;
       letter-spacing: -0.02em;
-      margin-bottom: 16px;
+      margin-bottom: 18px;
       color: var(--text-main);
+      transition: font-size 0.15s ease;
     }
 
     .meta-bar {
@@ -305,7 +382,7 @@ export function generateArticleHtmlDocument({
       flex-wrap: wrap;
       align-items: center;
       gap: 16px;
-      font-size: 13px;
+      font-size: calc(13px * var(--font-scale));
       color: var(--text-muted);
       padding-bottom: 24px;
       margin-bottom: 28px;
@@ -322,55 +399,60 @@ export function generateArticleHtmlDocument({
     .summary-box {
       background: var(--primary-light);
       border: 1px solid var(--primary);
-      border-radius: 12px;
-      padding: 20px 24px;
-      margin-bottom: 32px;
+      border-radius: 14px;
+      padding: 22px 26px;
+      margin-bottom: 34px;
     }
 
     .box-badge {
-      font-size: 12px;
+      font-size: calc(12px * var(--font-scale));
       font-weight: 800;
       color: var(--primary);
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
     }
 
     .summary-list {
       margin-left: 20px;
-      font-size: 15px;
+      font-size: calc(16px * var(--font-scale));
       font-weight: 500;
       color: var(--text-main);
+      transition: font-size 0.15s ease;
     }
 
     .summary-list li {
-      margin-bottom: 8px;
-      line-height: 1.5;
+      margin-bottom: 10px;
+      line-height: 1.55;
     }
 
     /* Article Body */
     .article-body {
-      font-size: 17px;
-      line-height: 1.8;
+      font-size: calc(18px * var(--font-scale));
+      line-height: 1.85;
       color: var(--text-main);
+      transition: font-size 0.15s ease;
     }
 
     .article-body p {
-      margin-bottom: 22px;
+      margin-bottom: 24px;
+      text-align: justify;
+      text-indent: 1.5em;
     }
 
     /* Complements Section */
     .complements-section {
-      margin-top: 40px;
+      margin-top: 44px;
       padding-top: 32px;
       border-top: 1px solid var(--border);
     }
 
     .section-heading {
-      font-size: 18px;
+      font-size: calc(20px * var(--font-scale));
       font-weight: 700;
-      margin-bottom: 16px;
+      margin-bottom: 18px;
       color: var(--text-main);
+      transition: font-size 0.15s ease;
     }
 
     .complements-grid {
@@ -381,44 +463,44 @@ export function generateArticleHtmlDocument({
     }
 
     .complement-card {
-      padding: 18px 20px;
+      padding: 20px 22px;
       border-radius: 12px;
       border: 1px solid var(--border);
     }
 
     .complement-card.results {
-      background: rgba(245, 158, 11, 0.06);
-      border-color: rgba(245, 158, 11, 0.25);
+      background: rgba(245, 158, 11, 0.07);
+      border-color: rgba(245, 158, 11, 0.3);
     }
 
     .complement-card.organisation {
-      background: rgba(6, 182, 212, 0.06);
-      border-color: rgba(6, 182, 212, 0.25);
+      background: rgba(6, 182, 212, 0.07);
+      border-color: rgba(6, 182, 212, 0.3);
     }
 
     .complement-card.controversies {
-      background: rgba(239, 68, 68, 0.06);
-      border-color: rgba(239, 68, 68, 0.25);
+      background: rgba(239, 68, 68, 0.07);
+      border-color: rgba(239, 68, 68, 0.3);
     }
 
     .complement-header {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 14px;
+      font-size: calc(15px * var(--font-scale));
       font-weight: 700;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
 
     .complement-card p {
-      font-size: 14px;
+      font-size: calc(15px * var(--font-scale));
       color: var(--text-main);
-      line-height: 1.6;
+      line-height: 1.7;
     }
 
     /* Investigation & Q&A Thread */
     .investigation-section {
-      margin-top: 40px;
+      margin-top: 44px;
       padding-top: 32px;
       border-top: 2px dashed var(--border);
     }
@@ -434,14 +516,14 @@ export function generateArticleHtmlDocument({
     }
 
     .investigation-icon {
-      font-size: 24px;
+      font-size: 26px;
       background: var(--primary-light);
-      padding: 6px 10px;
-      border-radius: 10px;
+      padding: 6px 12px;
+      border-radius: 12px;
     }
 
     .section-sub {
-      font-size: 13px;
+      font-size: calc(13px * var(--font-scale));
       color: var(--text-muted);
       margin-top: 4px;
     }
@@ -449,25 +531,25 @@ export function generateArticleHtmlDocument({
     .qa-thread {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 18px;
     }
 
     .qa-message {
-      padding: 16px 20px;
-      border-radius: 12px;
+      padding: 18px 22px;
+      border-radius: 14px;
       border: 1px solid var(--border);
     }
 
     .qa-user {
       background: var(--primary-light);
-      border-color: rgba(37, 99, 235, 0.2);
-      margin-left: 30px;
+      border-color: rgba(37, 99, 235, 0.25);
+      margin-left: 40px;
     }
 
     .qa-journalist {
       background: var(--card-bg);
       border-color: var(--border);
-      margin-right: 30px;
+      margin-right: 40px;
       box-shadow: var(--shadow);
     }
 
@@ -476,20 +558,20 @@ export function generateArticleHtmlDocument({
       justify-content: space-between;
       align-items: center;
       margin-bottom: 8px;
-      font-size: 12px;
+      font-size: calc(13px * var(--font-scale));
       font-weight: 700;
       color: var(--primary);
     }
 
     .qa-time {
-      font-size: 11px;
+      font-size: calc(11px * var(--font-scale));
       color: var(--text-muted);
       font-weight: 500;
     }
 
     .qa-body {
-      font-size: 14px;
-      line-height: 1.6;
+      font-size: calc(15px * var(--font-scale));
+      line-height: 1.7;
       color: var(--text-main);
     }
 
@@ -530,14 +612,43 @@ export function generateArticleHtmlDocument({
 
   <div class="container">
     
-    <!-- Action Bar for viewing or printing -->
-    <div class="action-bar">
+    <!-- Action Bar for viewing, font resizing, and printing -->
+    <div class="action-bar" id="reader-toolbar">
       <div class="brand">
         FOCUS <span>NEWS</span>
       </div>
-      <div>
-        <button class="print-btn" onclick="window.print()">
-          🖨️ Imprimer / PDF
+
+      <!-- Interactive Font Size Scaler for HTML Version -->
+      <div class="font-size-control-group" id="font-controls">
+        <span class="font-control-label">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+          Police :
+        </span>
+        <button class="font-btn-pill" id="btn-font-dec" onclick="stepFontScale(-0.15)" title="Diminuer la taille de la police (raccourci clavier : -)">
+          A-
+        </button>
+        <span class="font-scale-indicator" id="font-scale-text">100%</span>
+        <button class="font-btn-pill" id="btn-font-inc" onclick="stepFontScale(0.15)" title="Agrandir la taille de la police (raccourci clavier : +)">
+          A+
+        </button>
+        <button class="font-btn-pill active" id="btn-preset-100" onclick="setFontScale(1.0)" title="Taille standard">
+          100%
+        </button>
+        <button class="font-btn-pill" id="btn-preset-125" onclick="setFontScale(1.25)" title="Confort de lecture (+25%)">
+          125%
+        </button>
+        <button class="font-btn-pill" id="btn-preset-150" onclick="setFontScale(1.5)" title="Grand texte (+50%)">
+          150%
+        </button>
+        <button class="font-btn-pill" id="btn-preset-180" onclick="setFontScale(1.8)" title="Très grand texte (+80%)">
+          180%
+        </button>
+      </div>
+
+      <div class="actions-right">
+        <button class="print-btn" onclick="window.print()" title="Imprimer ou enregistrer au format PDF">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><path d="M6 14h12v8H6z"></path></svg>
+          Créer un PDF / Imprimer
         </button>
       </div>
     </div>
@@ -578,6 +689,72 @@ export function generateArticleHtmlDocument({
 
   </div>
 
+  <script>
+    (function() {
+      var currentScale = 1.0;
+      var MIN_SCALE = 0.85;
+      var MAX_SCALE = 2.4;
+
+      function updateActiveButtons() {
+        var presets = [1.0, 1.25, 1.5, 1.8];
+        presets.forEach(function(val) {
+          var id = "btn-preset-" + Math.round(val * 100);
+          var btn = document.getElementById(id);
+          if (btn) {
+            if (Math.abs(currentScale - val) < 0.05) {
+              btn.classList.add("active");
+            } else {
+              btn.classList.remove("active");
+            }
+          }
+        });
+
+        var indicator = document.getElementById("font-scale-text");
+        if (indicator) {
+          indicator.textContent = Math.round(currentScale * 100) + "%";
+        }
+      }
+
+      window.setFontScale = function(scale) {
+        currentScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.round(scale * 100) / 100));
+        document.documentElement.style.setProperty("--font-scale", currentScale);
+        updateActiveButtons();
+        try {
+          localStorage.setItem("focusNewsHtmlReaderFontScale", currentScale.toString());
+        } catch (e) {}
+      };
+
+      window.stepFontScale = function(delta) {
+        window.setFontScale(currentScale + delta);
+      };
+
+      // Restore user preferred font size if stored
+      try {
+        var saved = localStorage.getItem("focusNewsHtmlReaderFontScale");
+        if (saved) {
+          var parsed = parseFloat(saved);
+          if (!isNaN(parsed) && parsed >= MIN_SCALE && parsed <= MAX_SCALE) {
+            window.setFontScale(parsed);
+          }
+        }
+      } catch (e) {}
+
+      // Keyboard shortcuts: '+' to enlarge, '-' to decrease, '0' to reset
+      document.addEventListener("keydown", function(e) {
+        if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+        if (e.key === "+" || e.key === "=") {
+          e.preventDefault();
+          window.stepFontScale(0.15);
+        } else if (e.key === "-" || e.key === "_") {
+          e.preventDefault();
+          window.stepFontScale(-0.15);
+        } else if (e.key === "0") {
+          e.preventDefault();
+          window.setFontScale(1.0);
+        }
+      });
+    })();
+  </script>
 </body>
 </html>`;
 }
