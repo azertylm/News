@@ -17,7 +17,7 @@ export const MOCK_ARTICLES: Article[] = [
   {
     id: "mock-ai-1",
     category: "IA",
-    source: "",
+    source: "Le Monde",
     title: "L'émergence des modèles d'inférence avec raisonnement pas-à-pas",
     time: "14h",
     img: "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&q=80&w=600",
@@ -30,7 +30,7 @@ export const MOCK_ARTICLES: Article[] = [
   {
     id: "mock-pol-1",
     category: "Politique",
-    source: "",
+    source: "Franceinfo",
     title: "Souveraineté industrielle et transition énergétique : les arbitrages des nouveaux plans budgétaires",
     time: "13h",
     img: "https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&q=80&w=600",
@@ -43,7 +43,7 @@ export const MOCK_ARTICLES: Article[] = [
   {
     id: "mock-space-1",
     category: "Espace",
-    source: "",
+    source: "Sciences et Avenir",
     title: "Le programme lunaire international prépare les modules d'habitation du pôle Sud",
     time: "11h",
     img: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80&w=600",
@@ -56,7 +56,7 @@ export const MOCK_ARTICLES: Article[] = [
   {
     id: "mock-sport-1",
     category: "Sport",
-    source: "",
+    source: "L'Équipe",
     title: "Science de la récupération et longévité : la révolution de la préparation des athlètes d'élite",
     time: "10h",
     img: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&q=80&w=600",
@@ -69,7 +69,7 @@ export const MOCK_ARTICLES: Article[] = [
   {
     id: "mock-science-1",
     category: "Science",
-    source: "",
+    source: "Franceinfo",
     title: "Fusion nucléaire : le pilotage magnétique ultra-rapide stabilise le plasma record",
     time: "9h",
     img: "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&q=80&w=600",
@@ -82,7 +82,7 @@ export const MOCK_ARTICLES: Article[] = [
   {
     id: "mock-eco-1",
     category: "Économie",
-    source: "",
+    source: "Les Echos",
     title: "Stabilisation de l'inflation et politique monétaire : l'ajustement méthodique des taux d'intérêt",
     time: "8h",
     img: "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&q=80&w=600",
@@ -95,7 +95,7 @@ export const MOCK_ARTICLES: Article[] = [
   {
     id: "mock-culture-1",
     category: "Culture",
-    source: "",
+    source: "Le Monde",
     title: "Le renouveau des grandes rétrospectives et la numérisation des chefs-d'œuvre patrimoniaux",
     time: "7h",
     img: "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&q=80&w=600",

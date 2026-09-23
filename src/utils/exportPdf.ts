@@ -309,7 +309,7 @@ export function exportArticleToPdf({
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(148, 163, 184); // Slate 400
-    doc.text("Focus News — Le Quotidien Numérique Personnalisé", marginX, pageHeight - 7);
+    doc.text("Focus News — ALPHABETTE (Valentin RICHAUD) • Hébergement Souverain OVH", marginX, pageHeight - 7);
 
     const pageStr = `Page ${i} sur ${totalPages}`;
     doc.text(pageStr, pageWidth - marginX, pageHeight - 7, { align: "right" });
@@ -482,7 +482,7 @@ export function exportEditionToPdf({
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
-    doc.text(`Focus News — Journal complet ${hourText}`, marginX, pageHeight - 7);
+    doc.text(`Focus News — Journal complet ${hourText} • ALPHABETTE (Valentin RICHAUD) • OVH Souverain`, marginX, pageHeight - 7);
 
     const pageStr = `Page ${i} sur ${totalPages}`;
     doc.text(pageStr, pageWidth - marginX, pageHeight - 7, { align: "right" });

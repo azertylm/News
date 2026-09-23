@@ -557,6 +557,11 @@ export default function ArticleDetailModal({
           {/* Author/Source and Actions Bar */}
           <div className={metadataBorderClass}>
             <div className={`${metaTextInfoColor} flex-wrap`}>
+              {article.source && (
+                <span className={authorBadgeClass}>
+                  {article.source}
+                </span>
+              )}
               <span className="flex items-center gap-1 font-semibold">
                 <Clock className="w-3.5 h-3.5 text-blue-500" />
                 <span>Lecture : 5 min</span>

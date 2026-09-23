@@ -143,6 +143,11 @@ export default function NewsArticleCard({
         <div>
           {/* Metadata source and time */}
           <div className="flex flex-wrap items-center gap-2 mb-3 text-[11px]">
+            {article.source && (
+              <span className={sourceBadgeClass}>
+                {article.source}
+              </span>
+            )}
             <div className={`flex items-center gap-1 ${metaTextClass}`}>
               <Clock className="w-3 h-3 text-blue-500" />
               <span className="font-semibold">Lecture : 5 min</span>

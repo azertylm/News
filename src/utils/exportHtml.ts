@@ -682,8 +682,8 @@ export function generateArticleHtmlDocument({
       </div>
 
       <footer class="doc-footer">
-        <p>Document généré et exporté depuis l'application <strong>Focus News</strong> — Tous droits réservés.</p>
-        <p style="margin-top: 4px; font-size: 11px;">Date d'export : ${exportDate}</p>
+        <p>Document généré et exporté depuis l'application <strong>Focus News</strong> (groupe <strong>ALPHABETTE</strong>, fondé par Valentin RICHAUD).</p>
+        <p style="margin-top: 4px; font-size: 11px;">Hébergement souverain OVH • Zéro pistage publicitaire • Date d'export : ${exportDate}</p>
       </footer>
     </article>
 

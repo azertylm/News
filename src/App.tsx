@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Sparkles, Heart, Bookmark, SlidersHorizontal, Info, Clock, Play, Disc, Zap, PlusCircle, FileText, Check } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { Article, UserLocation } from "./types";
+import { Article, UserLocation, AISovereigntyTelemetry, AlphabetteSubscriptionState } from "./types";
 import { sanitizeArticle, sanitizeText } from "./utils/textCleaner";
 import { getHourlyFlashSummary, getArticlesForHour, getInstantArticles } from "./data/hourlyNews";
 import { exportEditionToPdf } from "./utils/exportPdf";
@@ -10,6 +10,9 @@ import PreferencesModal from "./components/PreferencesModal";
 import LocationMediaBanner from "./components/LocationMediaBanner";
 import NewsArticleCard from "./components/NewsArticleCard";
 import ArticleDetailModal from "./components/ArticleDetailModal";
+import SovereigntyModal from "./components/SovereigntyModal";
+import SubscriptionModal from "./components/SubscriptionModal";
+import { SourceFilterChips } from "./components/SourceFilterChips";
 
 export default function App() {
   // Navigation & UI States
@@ -79,6 +82,93 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [hasApiKey, setHasApiKey] = useState(true);
   const [hasExportedEditionPdf, setHasExportedEditionPdf] = useState(false);
+
+  // Press Sources Filtering (Toggled sources on/off)
+  const [disabledSources, setDisabledSources] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("alphabette_disabled_sources");
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const handleToggleSource = (sourceName: string) => {
+    setDisabledSources((prev) => {
+      const isAlreadyDisabled = prev.includes(sourceName);
+      const next = isAlreadyDisabled
+        ? prev.filter((s) => s !== sourceName)
+        : [...prev, sourceName];
+      try {
+        localStorage.setItem("alphabette_disabled_sources", JSON.stringify(next));
+      } catch (e) {}
+      showToast(isAlreadyDisabled ? `Source « ${sourceName} » réactivée` : `Source « ${sourceName} » masquée`);
+      return next;
+    });
+  };
+
+  const handleEnableAllSources = () => {
+    setDisabledSources([]);
+    try {
+      localStorage.removeItem("alphabette_disabled_sources");
+    } catch (e) {}
+    showToast("Toutes les sources de presse sont affichées");
+  };
+
+  const handleDisableAllSources = () => {
+    setDisabledSources(availableSources);
+    try {
+      localStorage.setItem("alphabette_disabled_sources", JSON.stringify(availableSources));
+    } catch (e) {}
+    showToast("Toutes les sources sont masquées");
+  };
+
+  const handleIsolateSource = (sourceName: string) => {
+    const others = availableSources.filter((s) => s !== sourceName);
+    setDisabledSources(others);
+    try {
+      localStorage.setItem("alphabette_disabled_sources", JSON.stringify(others));
+    } catch (e) {}
+    showToast(`Seule la source « ${sourceName} » est affichée`);
+  };
+
+  // ALPHABETTE Sovereignty & Access Control states
+  const [sovereigntyOpen, setSovereigntyOpen] = useState(false);
+  const [subscriptionOpen, setSubscriptionOpen] = useState(false);
+  const [sovereigntyTelemetry, setSovereigntyTelemetry] = useState<AISovereigntyTelemetry | undefined>(undefined);
+  const [subscriptionState, setSubscriptionState] = useState<AlphabetteSubscriptionState>(() => {
+    try {
+      const plan = (localStorage.getItem("alphabette_sub_plan") || "none") as "none" | "individual_1eur" | "bundle_3eur";
+      const date = localStorage.getItem("alphabette_sub_date") || undefined;
+      if (plan === "individual_1eur" || plan === "bundle_3eur") {
+        return {
+          isSubscribed: true,
+          plan,
+          activatedAt: date,
+          features: plan === "bundle_3eur" 
+            ? ["Suite complète ALPHABETTE (5 logiciels)", "IA Hybride Illimitée", "Zéro pub", "Hébergement souverain OVH"]
+            : ["Focus News / Infos Perso Grand Format", "IA Hybride Illimitée", "Zéro pub", "Hébergement souverain OVH"]
+        };
+      }
+    } catch {}
+    return { isSubscribed: false, plan: "none", features: [] };
+  });
+
+  const handleSelectPlan = (plan: "individual_1eur" | "bundle_3eur") => {
+    const nowIso = new Date().toISOString();
+    localStorage.setItem("alphabette_sub_plan", plan);
+    localStorage.setItem("alphabette_sub_date", nowIso);
+    const updated: AlphabetteSubscriptionState = {
+      isSubscribed: true,
+      plan,
+      activatedAt: nowIso,
+      features: plan === "bundle_3eur" 
+        ? ["Suite complète ALPHABETTE (5 logiciels)", "IA Hybride Illimitée", "Zéro pub", "Hébergement souverain OVH"]
+        : ["Focus News / Infos Perso Grand Format", "IA Hybride Illimitée", "Zéro pub", "Hébergement souverain OVH"]
+    };
+    setSubscriptionState(updated);
+    showToast(plan === "bundle_3eur" ? "🎉 Abonnement Pack ALPHABETTE (3€/mois) activé !" : "🎉 Abonnement Focus News (1€/mois) activé !");
+  };
 
   const handleExportCurrentEditionPdf = () => {
     const listToExport = sortedArticles && sortedArticles.length > 0 ? sortedArticles : articles;
@@ -307,6 +397,9 @@ export default function App() {
         if (data.hasApiKey !== undefined) {
           setHasApiKey(!!data.hasApiKey);
         }
+        if (data.sovereignty) {
+          setSovereigntyTelemetry(data.sovereignty);
+        }
       } else {
         setArticles([]);
         setApiMessage("Contenu indisponible.");
@@ -445,6 +538,29 @@ export default function App() {
     bookmarked: bookmarkedIds.includes(art.id)
   }));
 
+  // Extract all unique sources from current articles
+  const availableSources = React.useMemo(() => {
+    const set = new Set<string>();
+    enhancedArticles.forEach((art) => {
+      if (art.source && art.source.trim()) {
+        set.add(art.source.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "fr"));
+  }, [enhancedArticles]);
+
+  // Compute article counts per source
+  const sourceCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    enhancedArticles.forEach((art) => {
+      if (art.source && art.source.trim()) {
+        const s = art.source.trim();
+        counts[s] = (counts[s] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [enhancedArticles]);
+
   // Score articles for personalized prioritization based on categories, custom terms, Vibe and Bio!
   const getArticleScore = (art: Article) => {
     let score = 0;
@@ -519,16 +635,21 @@ export default function App() {
     );
   };
 
-  // Simple string-match search over title/summary combinable with personalized filters
+  // Simple string-match search over title/summary combinable with personalized filters and source toggling
   const filteredArticles = enhancedArticles.filter((art) => {
-    // Search query constraint (if non-empty)
+    // 1. Source visibility toggle (instantly exclude toggled-off sources)
+    if (art.source && disabledSources.includes(art.source.trim())) {
+      return false;
+    }
+
+    // 2. Search query constraint (if non-empty)
     const query = searchQuery.toLowerCase().trim();
     if (query) {
       const matchesSearch = (
         art.title.toLowerCase().includes(query) ||
         art.summary.toLowerCase().includes(query) ||
         art.category.toLowerCase().includes(query) ||
-        art.source.toLowerCase().includes(query)
+        (art.source && art.source.toLowerCase().includes(query))
       );
       if (!matchesSearch) return false;
     }
@@ -610,6 +731,10 @@ export default function App() {
           setTheme(t);
           localStorage.setItem("myNewsTheme", t);
         }}
+        onOpenSovereignty={() => setSovereigntyOpen(true)}
+        onOpenSubscription={() => setSubscriptionOpen(true)}
+        sovereigntyTelemetry={sovereigntyTelemetry}
+        subscriptionState={subscriptionState}
       />
 
       {/* MAIN LAYOUT */}
@@ -921,6 +1046,20 @@ export default function App() {
           </div>
         )}
 
+        {/* SOURCE FILTER CHIPS (INSTANT TOGGLE PER SOURCE) */}
+        {activeTab === "feed" && (
+          <SourceFilterChips
+            sources={availableSources}
+            disabledSources={disabledSources}
+            sourceCounts={sourceCounts}
+            onToggleSource={handleToggleSource}
+            onEnableAll={handleEnableAllSources}
+            onIsolateSource={handleIsolateSource}
+            theme={theme}
+            totalFilteredCount={sortedArticles.length}
+          />
+        )}
+
         {/* FEED BODY */}
         <div className="flex-1">
           {loading ? (
@@ -963,16 +1102,29 @@ export default function App() {
                       <Info className="w-10 h-10 text-amber-500 mx-auto mb-3" />
                       <h3 className="text-sm font-bold opacity-90">Aucun résultat</h3>
                       <p className="text-xs opacity-60 mt-1 max-w-xs mx-auto">
-                        Effacez les filtres ou la recherche pour afficher les articles de cette heure.
+                        {disabledSources.length > 0
+                          ? "Certaines sources de presse sont masquées ou les filtres actuels ne correspondent à aucun article."
+                          : "Effacez les filtres ou la recherche pour afficher les articles de cette heure."}
                       </p>
-                      {searchQuery && (
-                        <button
-                          onClick={() => setSearchQuery("")}
-                          className="mt-4 text-xs font-semibold text-blue-400 hover:underline cursor-pointer"
-                        >
-                          Réinitialiser la recherche
-                        </button>
-                      )}
+                      <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+                        {disabledSources.length > 0 && (
+                          <button
+                            id="reset-disabled-sources-btn"
+                            onClick={handleEnableAllSources}
+                            className="text-xs font-bold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 cursor-pointer shadow-xs transition"
+                          >
+                            Réactiver toutes les sources ({disabledSources.length} masquée{disabledSources.length > 1 ? "s" : ""})
+                          </button>
+                        )}
+                        {searchQuery && (
+                          <button
+                            onClick={() => setSearchQuery("")}
+                            className="text-xs font-semibold text-blue-400 hover:underline cursor-pointer"
+                          >
+                            Réinitialiser la recherche
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     /* Editorial grid layout showing all 15 hourly articles */
@@ -1048,11 +1200,36 @@ export default function App() {
       </main>
 
       {/* FOOTER */}
-      <footer className={`py-8 text-center text-xs mt-12 border-t ${
-        theme === "clair" ? "bg-slate-50 border-slate-200 text-slate-500" : "bg-black border-white/5 text-white/35"
+      <footer className={`py-10 text-center text-xs mt-12 border-t ${
+        theme === "clair" ? "bg-slate-50 border-slate-200 text-slate-600" : "bg-black border-white/5 text-white/40"
       }`}>
-        <p className="font-medium">Focus News de l'actualité © 2026</p>
-        <p className="opacity-60 mt-1">Design épuré et intelligent par Google AI Studio Build</p>
+        <div className="max-w-4xl mx-auto px-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-center gap-3 font-semibold text-[11px]">
+            <button
+              onClick={() => setSovereigntyOpen(true)}
+              className="text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Architecture Souveraine (OVH / Mistral)</span>
+            </button>
+            <span>•</span>
+            <button
+              onClick={() => setSubscriptionOpen(true)}
+              className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+            >
+              Catalogue &amp; Abonnements ALPHABETTE
+            </button>
+            <span>•</span>
+            <span className="text-slate-500 dark:text-zinc-500">Zéro Pistage Publicitaire • Respect de la Vie Privée</span>
+          </div>
+
+          <p className="font-medium">
+            Focus News / Infos Perso Grand Format — Application du catalogue <strong>ALPHABETTE</strong> (fondé par Valentin RICHAUD).
+          </p>
+          <p className="opacity-70 text-[10px]">
+            Hébergement souverain sur serveurs OVH (alphabette.fr / alphabette.eu) • Moteur d'inférence hybride résilient
+          </p>
+        </div>
       </footer>
 
       {/* INTERACTIVE OVERLAYS & MODALS */}
@@ -1084,6 +1261,25 @@ export default function App() {
             onToggleLike={(id) => handleToggleLike(id)}
             onToggleBookmark={(id) => handleToggleBookmark(id)}
             onUpdateImage={handleUpdateImage}
+            theme={theme}
+          />
+        )}
+
+        {sovereigntyOpen && (
+          <SovereigntyModal
+            isOpen={sovereigntyOpen}
+            onClose={() => setSovereigntyOpen(false)}
+            telemetry={sovereigntyTelemetry}
+            theme={theme}
+          />
+        )}
+
+        {subscriptionOpen && (
+          <SubscriptionModal
+            isOpen={subscriptionOpen}
+            onClose={() => setSubscriptionOpen(false)}
+            subscriptionState={subscriptionState}
+            onSelectPlan={handleSelectPlan}
             theme={theme}
           />
         )}

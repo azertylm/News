@@ -4,6 +4,15 @@ import fs from "fs";
 import { GoogleGenAI, Type } from "@google/genai";
 import { MOCK_ARTICLES } from "./src/data/mockArticles.js";
 import { getArticlesForHour, getInstantArticles } from "./src/data/hourlyNews";
+import { 
+  askAI, 
+  getAISystemStatus, 
+  setRuntimeProviderMode, 
+  getActiveProviderMode, 
+  parseAIJsonResponse, 
+  AIProviderMode,
+  AISovereigntyTelemetry 
+} from "./server/aiService";
 
 // Note: To support ES Module importing, we import with file extension or handle carefully.
 // But wait, the tsx/esbuild system will compile this. In ts, we can import without extensions or with correct alias.
@@ -900,6 +909,43 @@ Adapte le niveau de technicité et l'angle éditorial pour correspondre à ses c
   return p;
 }
 
+// AI Sovereignty & Multi-Provider Architecture endpoints (ALPHABETTE - Valentin RICHAUD)
+app.get("/api/ai/status", async (req, res) => {
+  try {
+    const status = await getAISystemStatus();
+    res.json(status);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/ai/toggle-provider", (req, res) => {
+  try {
+    const { mode } = req.body;
+    setRuntimeProviderMode(mode);
+    res.json({ success: true, activeMode: getActiveProviderMode() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/ai/test-failover", async (req, res) => {
+  try {
+    const testPrompt = "Explique en 2 phrases concises pourquoi l'architecture hybride souveraine ALPHABETTE (serveur local prioritaire + secours automatique Cloud Européen Mistral AI) est résiliente face aux coupures de courant et pannes réseau.";
+    const result = await askAI(testPrompt, {
+      providerOverride: "hybrid_mistral",
+      timeoutLocalMs: 2500
+    });
+    res.json({
+      success: true,
+      text: result.text,
+      sovereignty: result.sovereignty
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // API route to get news articles
 app.post("/api/news", async (req, res) => {
   let hasKeyForActiveProvider = false;
@@ -931,6 +977,7 @@ app.post("/api/news", async (req, res) => {
 
     hasKeyForActiveProvider = false;
     if (activeProvider === "gemini") hasKeyForActiveProvider = hasGeminiKey;
+    else if (activeProvider === "hybrid_mistral") hasKeyForActiveProvider = true; // Local server requires no API key, seamlessly falls back
     else if (activeProvider === "claude") hasKeyForActiveProvider = hasClaudeKey;
     else if (activeProvider === "mistral") hasKeyForActiveProvider = hasMistralKey;
 
@@ -1011,52 +1058,22 @@ app.post("/api/news", async (req, res) => {
     const systemInstruction = "Tu es le rédacteur en chef chevronné d'un média d'actualité d'élite en français. Tu es réputé pour ton écriture journalistique captivante, percutante, moderne, factuelle et objective. Tu t'appuies sur les meilleures sources : Le Monde, Marianne, Google News, etc.";
     const composedPrompt = makePrompt(selectedCategories, todayVibe, bio, location);
 
-    if (activeProvider === "gemini") {
-      providerLabel = "Gemini 3.7";
-      const ai = new GoogleGenAI({
-        apiKey: effectiveGeminiKey,
-        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+    let sovereigntyTelemetry: AISovereigntyTelemetry | undefined = undefined;
+
+    if (activeProvider === "hybrid_mistral" || activeProvider === "gemini" || activeProvider === "mistral") {
+      const mode: AIProviderMode = activeProvider === "mistral" ? "mistral_cloud_only" : (activeProvider as AIProviderMode);
+      
+      const aiResponse = await askAI(composedPrompt, {
+        systemInstruction,
+        jsonOutput: true,
+        providerOverride: mode,
+        temperature: 0.7
       });
 
-      const response = await runWithRetry(() => ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: composedPrompt,
-        config: {
-          systemInstruction,
-          tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            description: "Liste des articles d'actualité réels vérifiés en français",
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                category: { type: Type.STRING },
-                source: { type: Type.STRING },
-                title: { type: Type.STRING },
-                time: { type: Type.STRING },
-                summary: { type: Type.STRING },
-                content: { type: Type.STRING, description: "Texte intégral d'investigation en 5 à 7 longs paragraphes détaillés séparés par des '\\n\\n' (minimum 400 à 650 mots)." },
-                img: { type: Type.STRING },
-                imageIsAiGenerated: { type: Type.BOOLEAN },
-                imageLicensingText: { type: Type.STRING },
-                aiImagePrompt: { type: Type.STRING },
-                youtubeUrl: { type: Type.STRING },
-                results: { type: Type.STRING },
-                scandals: { type: Type.STRING },
-                organisation: { type: Type.STRING }
-              },
-              required: ["id", "category", "title", "time", "summary", "content", "img", "imageIsAiGenerated", "imageLicensingText", "aiImagePrompt"]
-            }
-          }
-        }
-      }));
-
-      const text = response.text;
-      if (!text) throw new Error("No response text returned from Gemini API");
-      parsedArticles = cleanAndParseJsonArray(text);
+      parsedArticles = cleanAndParseJsonArray(aiResponse.text);
       fromAI = true;
+      sovereigntyTelemetry = aiResponse.sovereignty;
+      providerLabel = aiResponse.sovereignty.providerLabel;
 
     } else if (activeProvider === "claude") {
       providerLabel = "Claude (Anthropic)";
@@ -1089,43 +1106,14 @@ app.post("/api/news", async (req, res) => {
       if (!text) throw new Error("No text returned from Claude API");
       parsedArticles = cleanAndParseJsonArray(text);
       fromAI = true;
-
-    } else if (activeProvider === "mistral") {
-      providerLabel = "Mistral AI";
-      const mistralResponse = await fetch("https://api.mistral.ai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${effectiveMistralKey}`
-        },
-        body: JSON.stringify({
-          model: "mistral-large-latest",
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemInstruction },
-            { role: "user", content: composedPrompt }
-          ]
-        })
-      });
-
-      if (!mistralResponse.ok) {
-        const errText = await mistralResponse.text();
-        throw new Error(`Mistral API error: ${mistralResponse.status} - ${errText}`);
-      }
-
-      const mistralData = await mistralResponse.json();
-      const text = mistralData?.choices?.[0]?.message?.content;
-      if (!text) throw new Error("No text returned from Mistral API");
-      const parsedData = JSON.parse(text);
-      parsedArticles = Array.isArray(parsedData) ? parsedData : (parsedData.articles || parsedData.data || Object.values(parsedData)[0] || []);
-      fromAI = true;
     }
 
     return res.json({ 
       articles: parsedArticles, 
       fromAI: true, 
       hasApiKey: true, 
-      message: `Rédigé sur-mesure par l'IA (${providerLabel}) avec recherche en direct (${location?.country || "France"}, ${location?.region || "Région"}).` 
+      sovereigntyTelemetry,
+      message: `Rédigé sur-mesure par l'IA (${providerLabel}) • ${sovereigntyTelemetry?.badge || "Traitement souverain"} (${location?.country || "France"}, ${location?.region || "Région"}).` 
     });
 
   } catch (error: any) {
@@ -1436,6 +1424,7 @@ app.post("/api/summarize", async (req, res) => {
 
     let hasKeyForActiveProvider = false;
     if (activeProvider === "gemini") hasKeyForActiveProvider = hasGeminiKey;
+    else if (activeProvider === "hybrid_mistral") hasKeyForActiveProvider = true;
     else if (activeProvider === "claude") hasKeyForActiveProvider = hasClaudeKey;
     else if (activeProvider === "mistral") hasKeyForActiveProvider = hasMistralKey;
 
@@ -1450,32 +1439,29 @@ app.post("/api/summarize", async (req, res) => {
 
     let summaryPoints: string[] = [];
     let providerLabel = "IA";
+    let sovereigntyInfo: AISovereigntyTelemetry | undefined = undefined;
 
-    if (activeProvider === "gemini") {
-      providerLabel = "Gemini";
-      const ai = new GoogleGenAI({ apiKey: effectiveGeminiKey });
+    if (activeProvider === "hybrid_mistral" || activeProvider === "gemini" || activeProvider === "mistral") {
+      const mode: AIProviderMode = activeProvider === "mistral" ? "mistral_cloud_only" : (activeProvider as AIProviderMode);
       const prompt = `Voici un article d'actualité français intitulé "${title}". Rédige un résumé intelligent de cet article sous forme de 3 ou 4 points clés percutants (puces).
       
 Article:
-${content}`;
+${content}
 
-      const response = await runWithRetry(() => ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt,
-        config: {
-          systemInstruction: "Tu es un assistant analytique chevronné chez Focus News. Ton travail consiste à extraire les faits essentiels et les points forts de n'importe quel texte sous forme de puces (bullets) claires, captivantes et impeccables en français.",
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            description: "La liste de 3 ou 4 puces décrivant le résumé de l'article.",
-            items: { type: Type.STRING }
-          }
-        }
-      }));
+Format attendu : renvoie impérativement un tableau JSON de 3 ou 4 chaînes de caractères, par exemple ["Point clé 1", "Point clé 2", "Point clé 3"].`;
 
-      const text = response.text;
-      if (!text) throw new Error("No response text returned from Gemini API");
-      summaryPoints = cleanAndParseJsonArray(text);
+      const aiRes = await askAI(prompt, {
+        systemInstruction: "Tu es un assistant analytique chevronné chez Focus News (écosystème ALPHABETTE). Ton travail consiste à extraire les faits essentiels et les points forts de n'importe quel texte sous forme de puces (bullets) claires, captivantes et impeccables en français. Renvoie UNIQUEMENT un tableau JSON de chaînes.",
+        jsonOutput: true,
+        providerOverride: mode
+      });
+
+      summaryPoints = cleanAndParseJsonArray(aiRes.text);
+      if (!Array.isArray(summaryPoints) || summaryPoints.length === 0) {
+        summaryPoints = generateDeterministicFallbackSummary(title, content);
+      }
+      sovereigntyInfo = aiRes.sovereignty;
+      providerLabel = aiRes.sovereignty.providerLabel;
 
     } else if (activeProvider === "claude") {
       providerLabel = "Claude (Anthropic)";
@@ -1499,38 +1485,14 @@ ${content}`;
       const data = await response.json();
       const text = data?.content?.[0]?.text;
       summaryPoints = cleanAndParseJsonArray(text);
-
-    } else if (activeProvider === "mistral") {
-      providerLabel = "Mistral AI";
-      const prompt = `Rédige un résumé intelligent de l'article "${title}" en français sous la forme d'un tableau JSON d'objets ou d'un tableau de 3 ou 4 chaînes de caractères représentant les points clés. Article:\n${content}`;
-      
-      const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${effectiveMistralKey}`
-        },
-        body: JSON.stringify({
-          model: "mistral-large-latest",
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: "Tu es un assistant analytique chevronné. Renvoie un format JSON valide { \"summary\": [\"point1\", \"point2\", \"point3\"] }" },
-            { role: "user", content: prompt }
-          ]
-        })
-      });
-
-      if (!response.ok) throw new Error(`Mistral error: ${await response.text()}`);
-      const data = await response.json();
-      const text = data?.choices?.[0]?.message?.content;
-      const parsed = JSON.parse(text);
-      summaryPoints = parsed.summary || parsed.points || parsed.pointsKeys || Object.values(parsed)[0];
-      if (!Array.isArray(summaryPoints)) {
-        summaryPoints = Object.values(parsed) as string[];
-      }
     }
 
-    return res.json({ summaryPoints, fromAI: true, message: `Synthétisé par ${providerLabel}.` });
+    return res.json({ 
+      summaryPoints, 
+      fromAI: true, 
+      sovereignty: sovereigntyInfo,
+      message: `Synthétisé par ${providerLabel} • ${sovereigntyInfo?.badge || "Traitement souverain"}.` 
+    });
 
   } catch (error: any) {
     console.log("[Info] Extraction d'informations en cours.");
@@ -1595,6 +1557,7 @@ app.post("/api/ask-journalist", async (req, res) => {
 
     let hasKeyForActiveProvider = false;
     if (activeProvider === "gemini") hasKeyForActiveProvider = hasGeminiKey;
+    else if (activeProvider === "hybrid_mistral") hasKeyForActiveProvider = true;
     else if (activeProvider === "claude") hasKeyForActiveProvider = hasClaudeKey;
     else if (activeProvider === "mistral") hasKeyForActiveProvider = hasMistralKey;
 
@@ -1610,8 +1573,9 @@ app.post("/api/ask-journalist", async (req, res) => {
 
     let answerText = "";
     let journalistRole = "Grand Reporter Focus News";
+    let sovereigntyInfo: AISovereigntyTelemetry | undefined = undefined;
 
-    const systemInstruction = `Tu es un grand reporter et journaliste d'investigation chevronné chez la rédaction indépendante « Focus News ».
+    const systemInstruction = `Tu es un grand reporter et journaliste d'investigation chevronné chez la rédaction indépendante « Focus News » (groupe souverain ALPHABETTE fondé par Valentin RICHAUD).
 Un lecteur lit l'article suivant et te pose une question directe pour approfondir le sujet.
 
 Titre de l'article : "${articleTitle}"
@@ -1628,38 +1592,29 @@ Directives journalistiques :
 - Fais des paragraphes digestes et lisibles (150 à 250 mots environ). Utilise au besoin des puces légères si plusieurs aspects sont à distinguer.
 - Réponds directement à la question sans répéter la formule de politesse générale à chaque fois.`;
 
-    if (activeProvider === "gemini") {
-      const ai = new GoogleGenAI({ apiKey: effectiveGeminiKey });
+    if (activeProvider === "hybrid_mistral" || activeProvider === "gemini" || activeProvider === "mistral") {
+      const mode: AIProviderMode = activeProvider === "mistral" ? "mistral_cloud_only" : (activeProvider as AIProviderMode);
       
-      // Build contents array with context and conversation history
-      const contentsPayload: any[] = [];
-      
+      const convHistory: Array<{ role: "user" | "assistant"; text: string }> = [];
       if (Array.isArray(history) && history.length > 0) {
         history.forEach((h: any) => {
-          contentsPayload.push({
-            role: h.role === "assistant" || h.role === "model" ? "model" : "user",
-            parts: [{ text: h.text || h.content || "" }]
+          convHistory.push({
+            role: h.role === "assistant" || h.role === "model" ? "assistant" : "user",
+            text: h.text || h.content || ""
           });
         });
       }
 
-      contentsPayload.push({
-        role: "user",
-        parts: [{ text: question }]
+      const aiRes = await askAI(question, {
+        systemInstruction,
+        conversationHistory: convHistory,
+        providerOverride: mode,
+        temperature: 0.7
       });
 
-      const response = await runWithRetry(() => ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: contentsPayload,
-        config: {
-          systemInstruction,
-          tools: [{ googleSearch: {} }],
-          temperature: 0.7,
-        }
-      }));
-
-      answerText = response.text || "";
-      journalistRole = "Grand Reporter Focus News (Gemini)";
+      answerText = aiRes.text || "";
+      sovereigntyInfo = aiRes.sovereignty;
+      journalistRole = `Grand Reporter Focus News (${aiRes.sovereignty.providerLabel})`;
 
     } else if (activeProvider === "claude") {
       const messagesPayload: any[] = [];
@@ -1692,42 +1647,12 @@ Directives journalistiques :
       const data = await response.json();
       answerText = data?.content?.[0]?.text || "";
       journalistRole = "Grand Reporter Focus News (Claude)";
-
-    } else if (activeProvider === "mistral") {
-      const messagesPayload: any[] = [
-        { role: "system", content: systemInstruction }
-      ];
-      if (Array.isArray(history) && history.length > 0) {
-        history.forEach((h: any) => {
-          messagesPayload.push({
-            role: h.role === "user" ? "user" : "assistant",
-            content: h.text || h.content || ""
-          });
-        });
-      }
-      messagesPayload.push({ role: "user", content: question });
-
-      const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${effectiveMistralKey}`
-        },
-        body: JSON.stringify({
-          model: "mistral-large-latest",
-          messages: messagesPayload
-        })
-      });
-
-      if (!response.ok) throw new Error(`Mistral error: ${await response.text()}`);
-      const data = await response.json();
-      answerText = data?.choices?.[0]?.message?.content || "";
-      journalistRole = "Grand Reporter Focus News (Mistral)";
     }
 
     return res.json({
       answer: answerText || generateJournalistFallbackAnswer(articleTitle, articleCategory, articleContent, question),
       fromAI: true,
+      sovereignty: sovereigntyInfo,
       journalistTitle: journalistRole
     });
 

@@ -683,7 +683,8 @@ export async function extractFullArticleText(url: string): Promise<string | null
 }
 
 /**
- * Generates an accurate, fact-based journalistic synthesis using Gemini if available.
+ * Generates an accurate, fact-based journalistic synthesis using the unified askAI router.
+ * Routes dynamically according to the active provider (Gemini or Hybrid Sovereign Mistral).
  * Explicitly responds to the question posed in the title with real names, figures, and facts.
  */
 async function generateFactualSynthesisWithGemini(
@@ -692,12 +693,8 @@ async function generateFactualSynthesisWithGemini(
   source: string, 
   category: string
 ): Promise<string | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
   try {
-    const { GoogleGenAI } = await import("@google/genai");
-    const ai = new GoogleGenAI({ apiKey });
+    const { askAI } = await import("./aiService");
     const prompt = `Tu es un grand journaliste spécialisé dans l'actualité et les enquêtes factuelles.
 Rédige un article d'investigation complet et captivant de 5 à 6 paragraphes qui RÉPOND STRICTEMENT ET DIRECTEMENT À LA QUESTION OU AU SUJET posé dans le titre :
 Titre : "${title}"
@@ -711,16 +708,16 @@ RÈGLES IMPÉRATIVES DE RIGUEUR JOURNALISTIQUE :
 3. BANNISSEMENT ABSOLU de tout remplissage générique, de langue de bois ou de clichés administratifs (ne JAMAIS écrire de phrases telles que "arbitrages réglementaires récents", "réunions interministérielles", "les observateurs suivent ce dossier", "enjeux de gouvernance"). Chaque phrase doit apporter une donnée factuelle réelle.
 4. Sépare obligatoirement chaque paragraphe d'un double saut de ligne "\\n\\n".`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.8-flash",
-      contents: prompt
+    const aiResponse = await askAI(prompt, {
+      systemInstruction: "Tu es un grand journaliste d'investigation. Ton style est clair, direct, riche en chiffres et noms vérifiés, sans aucun métalangage d'IA.",
+      temperature: 0.65
     });
 
-    if (response.text && response.text.trim().length > 300) {
-      return response.text.trim();
+    if (aiResponse.text && aiResponse.text.trim().length > 300) {
+      return aiResponse.text.trim();
     }
-  } catch (err) {
-    console.error("[realNewsEngine] Erreur synthèse factuelle Gemini:", err);
+  } catch (err: any) {
+    console.error("[realNewsEngine] Erreur synthèse factuelle via askAI:", err?.message || err);
   }
   return null;
 }

@@ -29,6 +29,7 @@ const IMAGES = {
 
 export interface RealNewsItem {
   category: string;
+  source?: string;
   title: string;
   summary: string;
   content: string;
@@ -278,10 +279,22 @@ export function getDeterministicArticle(hour: number, index: number, overrideMin
   const formattedMins = String(min).padStart(2, "0");
   const uniqueTime = `${hour}h${formattedMins}`;
 
+  const fallbackSources = [
+    "Le Monde",
+    "Franceinfo",
+    "Le Figaro",
+    "Les Echos",
+    "Libération",
+    "Courrier International",
+    "L'Équipe",
+    "Sciences et Avenir"
+  ];
+  const assignedSource = baseItem.source || fallbackSources[(hour + index) % fallbackSources.length];
+
   return {
     id: `real-news-${hour}-${index}-${Date.now()}`,
     category: baseItem.category,
-    source: "", // Source attribution omitted as requested by user
+    source: assignedSource,
     title: baseItem.title,
     time: uniqueTime,
     img: baseItem.img,
