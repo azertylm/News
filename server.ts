@@ -49,64 +49,10 @@ function saveQuotaLock(until: number) {
   }
 }
 
-// Track if Gemini API has been rate-limited / quota exhausted to avoid making futile blocking API requests
+// Track if Gemini API has been rate-limited / quota exhausted across all models
 let geminiQuotaExhaustedUntil = loadQuotaLock();
-
-// Retry wrapper with exponential backoff for transient AI model issues (like 503 Spike in Demand or 429 Rate Limits)
-async function runWithRetry<T>(
-  fn: () => Promise<T>,
-  retries = 3,
-  delay = 1000,
-  backoff = 2
-): Promise<T> {
-  try {
-    return await fn();
-  } catch (error: any) {
-    let messageStr = "";
-    try {
-      if (error && typeof error === "object") {
-        messageStr = error.message || error.error?.message || JSON.stringify(error);
-      } else {
-        messageStr = String(error);
-      }
-    } catch (e) {
-      messageStr = String(error);
-    }
-    const errorStr = messageStr.toLowerCase();
-
-    const isQuotaExceeded =
-      error.status === 429 ||
-      error.statusCode === 429 ||
-      error.error?.code === 429 ||
-      errorStr.includes("429") ||
-      errorStr.includes("resource_exhausted") ||
-      errorStr.includes("quota") ||
-      errorStr.includes("limit");
-
-    if (isQuotaExceeded) {
-      // Intelligently lock API usage for 5 minutes of quiet time to prevent spamming
-      geminiQuotaExhaustedUntil = Date.now() + 5 * 60 * 1000;
-      saveQuotaLock(geminiQuotaExhaustedUntil);
-    }
-
-    const isTransient = 
-      !isQuotaExceeded && (
-        error.status === 503 || 
-        error.statusCode === 503 ||
-        errorStr.includes("503") || 
-        errorStr.includes("unavailable") ||
-        errorStr.includes("high demand") ||
-        errorStr.includes("overloaded")
-      );
-
-    if (retries > 0 && isTransient) {
-      console.log(`[Gemini API] Transient condition handled: ${messageStr}. Retrying in ${delay}ms... (${retries} attempts remaining)`);
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      return runWithRetry(fn, retries - 1, delay * backoff, backoff);
-    }
-    throw error;
-  }
-}
+// Track image generation quota separately so image limitations never block text news generation
+let geminiImageQuotaExhaustedUntil = 0;
 
 // Extract bullet points from actual content to serve as clean, factual fallback points
 function generateDeterministicFallbackSummary(title: string, content: string): string[] {
@@ -1139,7 +1085,7 @@ app.post("/api/news", async (req, res) => {
       errorStr.includes("limit");
 
     if (isQuotaError) {
-      geminiQuotaExhaustedUntil = Date.now() + 5 * 60 * 1000;
+      geminiQuotaExhaustedUntil = Date.now() + 60 * 1000;
       saveQuotaLock(geminiQuotaExhaustedUntil);
     }
 
@@ -1301,9 +1247,9 @@ app.post("/api/generate-image", async (req, res) => {
     const geminiHeaderKey = req.headers["x-gemini-key"] as string;
     const effectiveGeminiKey = (geminiHeaderKey && geminiHeaderKey.trim() !== "") ? geminiHeaderKey : process.env.GEMINI_API_KEY;
     const hasApiKey = !!effectiveGeminiKey && effectiveGeminiKey !== "MY_GEMINI_API_KEY" && effectiveGeminiKey !== "";
-    const isQuotaLocked = Date.now() < geminiQuotaExhaustedUntil;
+    const isImageQuotaLocked = Date.now() < geminiImageQuotaExhaustedUntil;
 
-    if (!hasApiKey || isQuotaLocked) {
+    if (!hasApiKey || isImageQuotaLocked) {
       return res.json({
         imageUrl: getSmartFallbackImage(prompt),
         fromAI: false,
@@ -1316,10 +1262,10 @@ app.post("/api/generate-image", async (req, res) => {
       httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
     });
 
-    console.log("Generating AI Image from prompt via gemini-2.5-flash-image:", prompt);
+    console.log("Generating AI Image from prompt via gemini-3.1-flash-image:", prompt);
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: 'gemini-3.1-flash-image',
       contents: {
         parts: [{ text: `Create a gorgeous, professional, high-concept journalistic cover photograph illustration about this subject: "${prompt}". No text in image, photorealistic, premium visual art.` }],
       },
@@ -1381,8 +1327,8 @@ app.post("/api/generate-image", async (req, res) => {
       errorStr.includes("limit");
 
     if (isQuotaError) {
-      geminiQuotaExhaustedUntil = Date.now() + 5 * 60 * 1000;
-      saveQuotaLock(geminiQuotaExhaustedUntil);
+      // Isolate image quota lock so it does not impair text news feed generation
+      geminiImageQuotaExhaustedUntil = Date.now() + 60 * 1000;
     }
 
     console.log("[Info] Optimisation d'image, chargement de l'illustration alternative.");

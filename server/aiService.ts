@@ -89,11 +89,44 @@ export class LocalAIUnavailableError extends Error {
   }
 }
 
-// Retry wrapper with exponential backoff for transient AI model issues (like 503 Spike in Demand or 429 Rate Limits)
+// List of viable Gemini models for high-availability multi-model fallback
+export const GEMINI_CANDIDATE_MODELS = [
+  "gemini-flash-latest",
+  "gemini-3.1-flash-lite",
+  "gemini-3.8-flash"
+];
+
+// In-memory cooldown tracker for models experiencing 503 high demand or 429 quota exhaustion
+const geminiModelCooldowns = new Map<string, number>();
+
+function isModelCoolingDown(model: string): boolean {
+  const until = geminiModelCooldowns.get(model);
+  if (!until) return false;
+  if (Date.now() > until) {
+    geminiModelCooldowns.delete(model);
+    return false;
+  }
+  return true;
+}
+
+function markModelCooldown(model: string, durationMs = 30000): void {
+  geminiModelCooldowns.set(model, Date.now() + durationMs);
+}
+
+function getPrioritizedGeminiModels(preferredModel?: string): string[] {
+  const primary = preferredModel || process.env.GEMINI_MODEL || "gemini-flash-latest";
+  const unique = Array.from(new Set([primary, ...GEMINI_CANDIDATE_MODELS]));
+  // Models not in cooldown come first
+  const ready = unique.filter(m => !isModelCoolingDown(m));
+  const cooling = unique.filter(m => isModelCoolingDown(m));
+  return [...ready, ...cooling];
+}
+
+// Retry wrapper with exponential backoff and randomized jitter for transient AI model issues (503 spike in demand, 429 rate limits)
 async function runWithRetry<T>(
   fn: () => Promise<T>,
-  retries = 3,
-  delay = 1000,
+  retries = 2,
+  delay = 800,
   backoff = 2
 ): Promise<T> {
   try {
@@ -120,8 +153,10 @@ async function runWithRetry<T>(
       messageStr.includes("resource has been exhausted");
 
     if (retries > 0 && isRetryable) {
-      console.warn(`[aiService] Retryable error (${messageStr.slice(0, 80)}...). Retrying in ${delay}ms... (${retries} attempts left)`);
-      await new Promise(res => setTimeout(res, delay));
+      // Apply jitter: +/- 25% of delay to avoid concurrent stampede
+      const jitterDelay = Math.round(delay * (0.75 + Math.random() * 0.5));
+      console.warn(`[aiService] Erreur transitoire détectée (${messageStr.slice(0, 80)}...). Nouvelle tentative dans ${jitterDelay}ms... (${retries} essai(s) restant(s))`);
+      await new Promise(res => setTimeout(res, jitterDelay));
       return runWithRetry(fn, retries - 1, delay * backoff, backoff);
     }
     throw error;
@@ -130,6 +165,7 @@ async function runWithRetry<T>(
 
 /**
  * Phase 1 Provider: Google Gemini API (Development & Prototyping)
+ * Resilient multi-model chain: automatically switches models if one experiences 503 high demand or 429 quota exhaustion.
  */
 async function callGemini(prompt: string, options: AskAIOptions = {}): Promise<AIResponse> {
   const startTime = Date.now();
@@ -138,7 +174,6 @@ async function callGemini(prompt: string, options: AskAIOptions = {}): Promise<A
     throw new Error("GEMINI_API_KEY is not defined in environment.");
   }
 
-  const modelName = options.modelOverride || "gemini-3.8-flash";
   const ai = new GoogleGenAI({
     apiKey,
     httpOptions: { headers: { "User-Agent": "alphabette-focusnews" } }
@@ -171,30 +206,72 @@ async function callGemini(prompt: string, options: AskAIOptions = {}): Promise<A
     config.responseMimeType = "application/json";
   }
 
-  const response = await runWithRetry(() => ai.models.generateContent({
-    model: modelName,
-    contents: contentsPayload,
-    config
-  }));
+  const candidateModels = getPrioritizedGeminiModels(options.modelOverride);
+  const preferredModel = options.modelOverride || process.env.GEMINI_MODEL || "gemini-flash-latest";
+  let lastError: any = null;
 
-  const text = response.text || "";
-  const latencyMs = Date.now() - startTime;
+  for (let i = 0; i < candidateModels.length; i++) {
+    const candidateModel = candidateModels[i];
+    try {
+      // If this model is known to be in cooldown and we have alternatives, skip it unless it is the only remaining option
+      if (isModelCoolingDown(candidateModel) && i < candidateModels.length - 1) {
+        continue;
+      }
 
-  return {
-    text,
-    sovereignty: {
-      tier: "phase_1_prototypage",
-      providerName: "gemini",
-      providerLabel: `Google Gemini (${modelName})`,
-      model: modelName,
-      hosting: "Google AI Cloud (Environnement de prototypage)",
-      badge: "Phase 1 : Prototypage Google Gemini",
-      isLocal: false,
-      isEuropeanCloud: false,
-      fallbackTriggered: false,
-      latencyMs
+      const response = await runWithRetry(
+        () => ai.models.generateContent({
+          model: candidateModel,
+          contents: contentsPayload,
+          config
+        }),
+        1, // 1 retry on the same model with jitter before failing over to next candidate
+        600,
+        2
+      );
+
+      const text = response.text || "";
+      const latencyMs = Date.now() - startTime;
+      const isFallback = candidateModel !== preferredModel;
+
+      return {
+        text,
+        sovereignty: {
+          tier: "phase_1_prototypage",
+          providerName: "gemini",
+          providerLabel: `Google Gemini (${candidateModel})`,
+          model: candidateModel,
+          hosting: "Google AI Cloud (Environnement de prototypage)",
+          badge: isFallback
+            ? `Phase 1 : Secours dynamique (${candidateModel})`
+            : `Phase 1 : Prototypage Google Gemini`,
+          isLocal: false,
+          isEuropeanCloud: false,
+          fallbackTriggered: isFallback,
+          fallbackReason: isFallback ? `Bascule automatique suite à saturation temporaire de ${preferredModel}` : undefined,
+          latencyMs
+        }
+      };
+    } catch (err: any) {
+      lastError = err;
+      const errStr = (err?.message || String(err)).toLowerCase();
+      const isOverload =
+        errStr.includes("503") ||
+        errStr.includes("demand") ||
+        errStr.includes("429") ||
+        errStr.includes("quota") ||
+        errStr.includes("exhausted") ||
+        errStr.includes("unavailable");
+
+      if (isOverload) {
+        markModelCooldown(candidateModel, 30000);
+        console.warn(`[aiService] Modèle Gemini ${candidateModel} temporairement saturé (503/429). Bascule immédiate sur un modèle alternatif...`);
+      } else {
+        console.warn(`[aiService] Échec sur ${candidateModel} (${err?.message || err}). Tentative avec le modèle suivant...`);
+      }
     }
-  };
+  }
+
+  throw lastError || new Error("Tous les modèles Gemini disponibles sont temporairement saturés.");
 }
 
 /**

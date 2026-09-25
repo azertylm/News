@@ -488,16 +488,17 @@ export async function getLiveRealNews({
     }
   }));
 
-  // 2. For items where scraping was unavailable (paywall, dynamic JS), synthesize strict factual answers using Gemini
-  await Promise.all(candidateItems.map(async (item) => {
-    if (!item.fullContent || item.fullContent.length < 250) {
-      const cleanCat = determineCategory(item.title, item.snippet, item.category, categories);
-      const aiSynthesis = await generateFactualSynthesisWithGemini(item.title, item.snippet, item.source, cleanCat);
-      if (aiSynthesis && aiSynthesis.length > 200) {
-        item.fullContent = aiSynthesis;
-      }
+  // 2. For items where scraping was unavailable (paywall, dynamic JS), synthesize strict factual dossier using AI.
+  // We limit AI synthesis to the top 2 featured articles needing enrichment and execute sequentially with caching
+  // to avoid hitting rate limits or triggering 503 high-demand errors across concurrent RSS items.
+  const itemsNeedingSynthesis = candidateItems.filter(item => !item.fullContent || item.fullContent.length < 250);
+  for (const item of itemsNeedingSynthesis.slice(0, 2)) {
+    const cleanCat = determineCategory(item.title, item.snippet, item.category, categories);
+    const aiSynthesis = await generateFactualSynthesisWithGemini(item.title, item.snippet, item.source, cleanCat);
+    if (aiSynthesis && aiSynthesis.length > 200) {
+      item.fullContent = aiSynthesis;
     }
-  }));
+  }
 
   const articles: Article[] = candidateItems.map((item, idx) => {
     const pubTime = item.pubDate ? formatPubDate(item.pubDate) : `${currentHour}h${String(Math.max(0, now.getMinutes() - idx * 4)).padStart(2, "0")}`;
@@ -682,6 +683,9 @@ export async function extractFullArticleText(url: string): Promise<string | null
   }
 }
 
+const aiSynthesisCache = new Map<string, { text: string; timestamp: number }>();
+const CACHE_SYNTHESIS_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
 /**
  * Generates an accurate, fact-based journalistic synthesis using the unified askAI router.
  * Routes dynamically according to the active provider (Gemini or Hybrid Sovereign Mistral).
@@ -693,6 +697,12 @@ async function generateFactualSynthesisWithGemini(
   source: string, 
   category: string
 ): Promise<string | null> {
+  const cacheKey = `${title.toLowerCase().trim().slice(0, 50)}_${source}`;
+  const cached = aiSynthesisCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_SYNTHESIS_TTL_MS) {
+    return cached.text;
+  }
+
   try {
     const { askAI } = await import("./aiService");
     const prompt = `Tu es un grand journaliste spécialisé dans l'actualité et les enquêtes factuelles.
@@ -714,7 +724,9 @@ RÈGLES IMPÉRATIVES DE RIGUEUR JOURNALISTIQUE :
     });
 
     if (aiResponse.text && aiResponse.text.trim().length > 300) {
-      return aiResponse.text.trim();
+      const trimmed = aiResponse.text.trim();
+      aiSynthesisCache.set(cacheKey, { text: trimmed, timestamp: Date.now() });
+      return trimmed;
     }
   } catch (err: any) {
     console.error("[realNewsEngine] Erreur synthèse factuelle via askAI:", err?.message || err);
