@@ -55,47 +55,47 @@ export default function NewsArticleCard({
       : "bg-zinc-950/80 border border-zinc-900 hover:bg-zinc-900/40 transition-all duration-300 flex flex-col focus-within:ring-1 focus-within:ring-blue-500/50 h-full rounded-3xl overflow-hidden";
 
   const metaTextClass = 
-    theme === "clair" ? "text-slate-500" : "text-white/40";
+    theme === "clair" ? "text-slate-700 font-semibold" : "text-zinc-300 font-semibold";
 
   const sourceBadgeClass = 
     theme === "clair"
-      ? "text-blue-700 font-mono font-bold uppercase text-[9px] bg-blue-50 px-2 py-0.5 rounded border border-blue-100"
-      : "text-zinc-300 font-mono font-bold uppercase text-[9px] bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800";
+      ? "text-blue-900 font-mono font-bold uppercase text-[10px] bg-blue-100 px-2 py-0.5 rounded border border-blue-300"
+      : "text-blue-200 font-mono font-bold uppercase text-[10px] bg-blue-950 px-2 py-0.5 rounded border border-blue-700";
 
   const titleTextClass = 
     theme === "clair"
-      ? "text-slate-900 group-hover:text-blue-600"
-      : "text-neutral-100 group-hover:text-white";
+      ? "text-slate-900 group-hover:text-blue-700"
+      : "text-white group-hover:text-blue-300";
 
   const summaryTextClass = 
-    theme === "clair" ? "text-slate-600" : "text-white/55";
+    theme === "clair" ? "text-slate-800 font-medium" : "text-zinc-200 font-medium";
 
   const footerBorderClass = 
-    theme === "clair" ? "border-slate-100" : "border-white/5";
+    theme === "clair" ? "border-slate-200" : "border-zinc-800";
 
   const readMoreClass = 
-    theme === "clair" ? "text-blue-600 hover:text-blue-700" : "text-blue-400/90 group-hover:text-blue-400";
+    theme === "clair" ? "text-blue-700 font-bold hover:text-blue-800" : "text-blue-400 font-bold group-hover:text-blue-300";
 
   const bookmarkBtnClass = 
     article.bookmarked
       ? "bg-blue-600 border-blue-600 text-white shadow"
       : theme === "clair"
-      ? "bg-slate-100 hover:bg-slate-200/80 text-slate-400 hover:text-slate-700 border-slate-200/60"
-      : "bg-zinc-900 text-zinc-500 hover:text-zinc-200 border-zinc-800 hover:bg-zinc-800";
+      ? "bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border-slate-300"
+      : "bg-zinc-900 text-zinc-300 hover:text-white border-zinc-700 hover:bg-zinc-800";
 
   const likeBtnClass = 
     article.liked
       ? theme === "clair"
-        ? "bg-rose-50 border-rose-200 text-rose-600"
-        : "bg-rose-950/20 border-rose-900/30 text-rose-500"
+        ? "bg-rose-50 border-rose-300 text-rose-700 font-bold"
+        : "bg-rose-950/40 border-rose-700 text-rose-400 font-bold"
       : theme === "clair"
-      ? "bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border-slate-200/60 hover:border-rose-150"
-      : "bg-zinc-900 text-zinc-500 hover:text-rose-400 border-zinc-800 hover:bg-zinc-800";
+      ? "bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border-slate-300 hover:border-rose-300"
+      : "bg-zinc-900 text-zinc-300 hover:text-rose-400 border-zinc-700 hover:bg-zinc-800";
 
   const shareBtnClass = 
     theme === "clair"
-      ? "bg-slate-100 hover:bg-blue-50 text-slate-400 hover:text-blue-600 border-slate-200/60 hover:border-blue-150"
-      : "bg-zinc-900 text-zinc-500 hover:text-blue-400 border-zinc-800 hover:bg-zinc-800";
+      ? "bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border-slate-300 hover:border-blue-300"
+      : "bg-zinc-900 text-zinc-300 hover:text-blue-400 border-zinc-700 hover:bg-zinc-800";
 
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     e.currentTarget.onerror = null;

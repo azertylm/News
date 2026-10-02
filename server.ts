@@ -894,11 +894,10 @@ app.post("/api/ai/test-failover", async (req, res) => {
 
 // API route to get news articles
 app.post("/api/news", async (req, res) => {
-  let hasKeyForActiveProvider = false;
+  let hasKeyForActiveProvider = true;
   try {
+    const mistralHeaderKey = (req.headers["x-mistral-key"] || req.headers["x-ai-key"]) as string;
     const geminiHeaderKey = req.headers["x-gemini-key"] as string;
-    const claudeHeaderKey = req.headers["x-claude-key"] as string;
-    const mistralHeaderKey = req.headers["x-mistral-key"] as string;
 
     const { 
       categories = [], 
@@ -907,30 +906,20 @@ app.post("/api/news", async (req, res) => {
       forceRefresh = false, 
       isInstantEdition = false, 
       bio = "", 
-      activeProvider = "gemini", 
+      activeProvider = "mistral_exclusive", 
       hour,
-      location
+      location,
+      accessMode = "trial"
     } = req.body;
 
-    // Determine the keys to use
-    const effectiveGeminiKey = (geminiHeaderKey && geminiHeaderKey.trim() !== "") ? geminiHeaderKey : process.env.GEMINI_API_KEY;
-    const effectiveClaudeKey = (claudeHeaderKey && claudeHeaderKey.trim() !== "") ? claudeHeaderKey : process.env.ANTHROPIC_API_KEY;
-    const effectiveMistralKey = (mistralHeaderKey && mistralHeaderKey.trim() !== "") ? mistralHeaderKey : process.env.MISTRAL_API_KEY;
+    const effectiveMistralKey = (mistralHeaderKey && mistralHeaderKey.trim() !== "") 
+      ? mistralHeaderKey.trim() 
+      : (process.env.AI_API_KEY || process.env.MISTRAL_API_KEY || "").trim();
 
-    const hasGeminiKey = !!effectiveGeminiKey && effectiveGeminiKey !== "MY_GEMINI_API_KEY" && effectiveGeminiKey !== "";
-    const hasClaudeKey = !!effectiveClaudeKey && effectiveClaudeKey !== "MY_CLAUDE_API_KEY" && effectiveClaudeKey !== "";
-    const hasMistralKey = !!effectiveMistralKey && effectiveMistralKey !== "MY_MISTRAL_API_KEY" && effectiveMistralKey !== "";
+    hasKeyForActiveProvider = true;
 
-    hasKeyForActiveProvider = false;
-    if (activeProvider === "gemini") hasKeyForActiveProvider = hasGeminiKey;
-    else if (activeProvider === "hybrid_mistral") hasKeyForActiveProvider = true; // Local server requires no API key, seamlessly falls back
-    else if (activeProvider === "claude") hasKeyForActiveProvider = hasClaudeKey;
-    else if (activeProvider === "mistral") hasKeyForActiveProvider = hasMistralKey;
-
-    const isQuotaLocked = Date.now() < geminiQuotaExhaustedUntil;
-
-    // Fast-path to real live news engine (Google News, Le Monde, Marianne RSS feeds) if no API key or when not forcing AI
-    if (!hasKeyForActiveProvider || (activeProvider === "gemini" && isQuotaLocked) || (hour !== undefined && !forceRefresh && !isInstantEdition)) {
+    // Fast-path to real live news engine (Google News, Le Monde, Marianne RSS feeds) if not forcing AI
+    if (hour !== undefined && !forceRefresh && !isInstantEdition) {
       const liveRealArticles = await getLiveRealNews({
         categories,
         customCategories,
@@ -946,7 +935,7 @@ app.post("/api/news", async (req, res) => {
         return res.json({
           articles: liveRealArticles,
           fromAI: false,
-          hasApiKey: hasKeyForActiveProvider,
+          hasApiKey: true,
           message: statusMsg
         });
       }
@@ -990,7 +979,7 @@ app.post("/api/news", async (req, res) => {
       return res.json({
         articles: articlesToSend,
         fromAI: false,
-        hasApiKey: hasKeyForActiveProvider,
+        hasApiKey: true,
         message: statusMsg
       });
     }
@@ -999,60 +988,23 @@ app.post("/api/news", async (req, res) => {
 
     let parsedArticles: Article[] = [];
     let fromAI = false;
-    let providerLabel = "IA";
+    let providerLabel = "Mistral AI Souverain";
 
-    const systemInstruction = "Tu es le rédacteur en chef chevronné d'un média d'actualité d'élite en français. Tu es réputé pour ton écriture journalistique captivante, percutante, moderne, factuelle et objective. Tu t'appuies sur les meilleures sources : Le Monde, Marianne, Google News, etc.";
+    const systemInstruction = "Tu es le rédacteur en chef chevronné d'un média d'actualité d'élite en français au sein de l'écosystème ALPHABETTE (http://alphabette.fr). Tu es réputé pour ton écriture journalistique captivante, percutante, moderne, factuelle et objective. Tu t'appuies sur les meilleures sources : Le Monde, Marianne, Google News, etc.";
     const composedPrompt = makePrompt(selectedCategories, todayVibe, bio, location);
 
-    let sovereigntyTelemetry: AISovereigntyTelemetry | undefined = undefined;
+    const aiResponse = await askAI(composedPrompt, {
+      systemInstruction,
+      jsonOutput: true,
+      byokApiKey: effectiveMistralKey,
+      accessMode,
+      temperature: 0.7
+    });
 
-    if (activeProvider === "hybrid_mistral" || activeProvider === "gemini" || activeProvider === "mistral") {
-      const mode: AIProviderMode = activeProvider === "mistral" ? "mistral_cloud_only" : (activeProvider as AIProviderMode);
-      
-      const aiResponse = await askAI(composedPrompt, {
-        systemInstruction,
-        jsonOutput: true,
-        providerOverride: mode,
-        temperature: 0.7
-      });
-
-      parsedArticles = cleanAndParseJsonArray(aiResponse.text);
-      fromAI = true;
-      sovereigntyTelemetry = aiResponse.sovereignty;
-      providerLabel = aiResponse.sovereignty.providerLabel;
-
-    } else if (activeProvider === "claude") {
-      providerLabel = "Claude (Anthropic)";
-      const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": effectiveClaudeKey || "",
-          "anthropic-version": "2023-06-01"
-        },
-        body: JSON.stringify({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 4000,
-          messages: [
-            {
-              role: "user",
-              content: `${systemInstruction}\n\n${composedPrompt}`
-            }
-          ]
-        })
-      });
-
-      if (!claudeResponse.ok) {
-        const errText = await claudeResponse.text();
-        throw new Error(`Anthropic Claude API error: ${claudeResponse.status} - ${errText}`);
-      }
-
-      const claudeData = await claudeResponse.json();
-      const text = claudeData?.content?.[0]?.text;
-      if (!text) throw new Error("No text returned from Claude API");
-      parsedArticles = cleanAndParseJsonArray(text);
-      fromAI = true;
-    }
+    parsedArticles = cleanAndParseJsonArray(aiResponse.text);
+    fromAI = true;
+    const sovereigntyTelemetry = aiResponse.sovereignty;
+    providerLabel = aiResponse.sovereignty.providerLabel;
 
     return res.json({ 
       articles: parsedArticles, 
@@ -1347,7 +1299,7 @@ app.post("/api/generate-image", async (req, res) => {
   }
 });
 
-// API route to summarize an article using AI
+// API route to summarize an article using Mistral AI (Souveraineté Alphabette & RGPD)
 app.post("/api/summarize", async (req, res) => {
   const { title = "Actualité", content = "" } = req.body;
   try {
@@ -1355,93 +1307,40 @@ app.post("/api/summarize", async (req, res) => {
       return res.status(400).json({ error: "Missing content to summarize." });
     }
 
-    const geminiHeaderKey = req.headers["x-gemini-key"] as string;
-    const claudeHeaderKey = req.headers["x-claude-key"] as string;
-    const mistralHeaderKey = req.headers["x-mistral-key"] as string;
-    const activeProvider = req.headers["x-active-provider"] as string || "gemini";
-
-    const effectiveGeminiKey = (geminiHeaderKey && geminiHeaderKey.trim() !== "") ? geminiHeaderKey : process.env.GEMINI_API_KEY;
-    const effectiveClaudeKey = (claudeHeaderKey && claudeHeaderKey.trim() !== "") ? claudeHeaderKey : process.env.ANTHROPIC_API_KEY;
-    const effectiveMistralKey = (mistralHeaderKey && mistralHeaderKey.trim() !== "") ? mistralHeaderKey : process.env.MISTRAL_API_KEY;
-
-    const hasGeminiKey = !!effectiveGeminiKey && effectiveGeminiKey !== "MY_GEMINI_API_KEY" && effectiveGeminiKey !== "";
-    const hasClaudeKey = !!effectiveClaudeKey && effectiveClaudeKey !== "MY_CLAUDE_API_KEY" && effectiveClaudeKey !== "";
-    const hasMistralKey = !!effectiveMistralKey && effectiveMistralKey !== "MY_MISTRAL_API_KEY" && effectiveMistralKey !== "";
-
-    let hasKeyForActiveProvider = false;
-    if (activeProvider === "gemini") hasKeyForActiveProvider = hasGeminiKey;
-    else if (activeProvider === "hybrid_mistral") hasKeyForActiveProvider = true;
-    else if (activeProvider === "claude") hasKeyForActiveProvider = hasClaudeKey;
-    else if (activeProvider === "mistral") hasKeyForActiveProvider = hasMistralKey;
-
-    const isQuotaLocked = Date.now() < geminiQuotaExhaustedUntil;
-
-    if (!hasKeyForActiveProvider || (activeProvider === "gemini" && isQuotaLocked)) {
-      return res.json({
-        summaryPoints: generateDeterministicFallbackSummary(title, content),
-        message: "Synthèse détaillée rédigée par la rédaction."
-      });
-    }
+    const mistralHeaderKey = (req.headers["x-mistral-key"] || req.headers["x-ai-key"]) as string;
+    const clientProvidedKey = mistralHeaderKey && mistralHeaderKey.trim() !== "" ? mistralHeaderKey : undefined;
 
     let summaryPoints: string[] = [];
-    let providerLabel = "IA";
     let sovereigntyInfo: AISovereigntyTelemetry | undefined = undefined;
 
-    if (activeProvider === "hybrid_mistral" || activeProvider === "gemini" || activeProvider === "mistral") {
-      const mode: AIProviderMode = activeProvider === "mistral" ? "mistral_cloud_only" : (activeProvider as AIProviderMode);
-      const prompt = `Voici un article d'actualité français intitulé "${title}". Rédige un résumé intelligent de cet article sous forme de 3 ou 4 points clés percutants (puces).
+    const prompt = `Voici un article d'actualité français intitulé "${title}". Rédige un résumé intelligent de cet article sous forme de 3 ou 4 points clés percutants (puces).
       
 Article:
 ${content}
 
 Format attendu : renvoie impérativement un tableau JSON de 3 ou 4 chaînes de caractères, par exemple ["Point clé 1", "Point clé 2", "Point clé 3"].`;
 
-      const aiRes = await askAI(prompt, {
-        systemInstruction: "Tu es un assistant analytique chevronné chez Focus News (écosystème ALPHABETTE). Ton travail consiste à extraire les faits essentiels et les points forts de n'importe quel texte sous forme de puces (bullets) claires, captivantes et impeccables en français. Renvoie UNIQUEMENT un tableau JSON de chaînes.",
-        jsonOutput: true,
-        providerOverride: mode
-      });
+    const aiRes = await askAI(prompt, {
+      systemInstruction: "Tu es un assistant analytique chevronné chez Focus News (écosystème ALPHABETTE). Ton travail consiste à extraire les faits essentiels et les points forts de n'importe quel texte sous forme de puces (bullets) claires, captivantes et impeccables en français. Renvoie UNIQUEMENT un tableau JSON de chaînes.",
+      jsonOutput: true,
+      clientProvidedKey
+    });
 
-      summaryPoints = cleanAndParseJsonArray(aiRes.text);
-      if (!Array.isArray(summaryPoints) || summaryPoints.length === 0) {
-        summaryPoints = generateDeterministicFallbackSummary(title, content);
-      }
-      sovereigntyInfo = aiRes.sovereignty;
-      providerLabel = aiRes.sovereignty.providerLabel;
-
-    } else if (activeProvider === "claude") {
-      providerLabel = "Claude (Anthropic)";
-      const prompt = `Tu es un assistant analytique chez Focus News. Rédige un résumé intelligent de l'article "${title}" en français sous la forme d'un tableau JSON pur composé exactement de 3 ou 4 chaînes de caractères de points clés (ne renvoie rien d'autre que le JSON brut). Article:\n${content}`;
-      
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": effectiveClaudeKey,
-          "anthropic-version": "2023-06-01"
-        },
-        body: JSON.stringify({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: prompt }]
-        })
-      });
-
-      if (!response.ok) throw new Error(`Claude error: ${await response.text()}`);
-      const data = await response.json();
-      const text = data?.content?.[0]?.text;
-      summaryPoints = cleanAndParseJsonArray(text);
+    summaryPoints = cleanAndParseJsonArray(aiRes.text);
+    if (!Array.isArray(summaryPoints) || summaryPoints.length === 0) {
+      summaryPoints = generateDeterministicFallbackSummary(title, content);
     }
+    sovereigntyInfo = aiRes.sovereignty;
 
     return res.json({ 
       summaryPoints, 
       fromAI: true, 
       sovereignty: sovereigntyInfo,
-      message: `Synthétisé par ${providerLabel} • ${sovereigntyInfo?.badge || "Traitement souverain"}.` 
+      message: `Synthétisé par ${sovereigntyInfo?.providerLabel || "Mistral AI Souverain"} • ${sovereigntyInfo?.badge || "Traitement souverain Mistral AI"}.` 
     });
 
   } catch (error: any) {
-    console.log("[Info] Extraction d'informations en cours.");
+    console.log("[Info] Extraction d'informations en cours avec fallback rédactionnel.");
     return res.json({
       summaryPoints: generateDeterministicFallbackSummary(title, content),
       fromAI: false,
@@ -1473,7 +1372,7 @@ function generateJournalistFallbackAnswer(title: string, category: string, conte
   return `Sur le sujet « ${title} », les éléments vérifiés par nos équipes mettent en évidence une dynamique solide : les protocoles récents et les concertations interdisciplinaires confirment la pertinence des orientations prises. N'hésitez pas à préciser un angle particulier (impacts économiques, calendrier, méthode) si vous souhaitez creuser un aspect spécifique.`;
 }
 
-// API route to interact with the dedicated investigative journalist
+// API route to interact with the dedicated investigative journalist (Mistral AI Souverain)
 app.post("/api/ask-journalist", async (req, res) => {
   const { 
     articleTitle = "Actualité", 
@@ -1488,40 +1387,20 @@ app.post("/api/ask-journalist", async (req, res) => {
       return res.status(400).json({ error: "La question est requise." });
     }
 
-    const geminiHeaderKey = req.headers["x-gemini-key"] as string;
-    const claudeHeaderKey = req.headers["x-claude-key"] as string;
-    const mistralHeaderKey = req.headers["x-mistral-key"] as string;
-    const activeProvider = req.headers["x-active-provider"] as string || "gemini";
+    const mistralHeaderKey = (req.headers["x-mistral-key"] || req.headers["x-ai-key"]) as string;
+    const clientProvidedKey = mistralHeaderKey && mistralHeaderKey.trim() !== "" ? mistralHeaderKey : undefined;
 
-    const effectiveGeminiKey = (geminiHeaderKey && geminiHeaderKey.trim() !== "") ? geminiHeaderKey : process.env.GEMINI_API_KEY;
-    const effectiveClaudeKey = (claudeHeaderKey && claudeHeaderKey.trim() !== "") ? claudeHeaderKey : process.env.ANTHROPIC_API_KEY;
-    const effectiveMistralKey = (mistralHeaderKey && mistralHeaderKey.trim() !== "") ? mistralHeaderKey : process.env.MISTRAL_API_KEY;
-
-    const hasGeminiKey = !!effectiveGeminiKey && effectiveGeminiKey !== "MY_GEMINI_API_KEY" && effectiveGeminiKey !== "";
-    const hasClaudeKey = !!effectiveClaudeKey && effectiveClaudeKey !== "MY_CLAUDE_API_KEY" && effectiveClaudeKey !== "";
-    const hasMistralKey = !!effectiveMistralKey && effectiveMistralKey !== "MY_MISTRAL_API_KEY" && effectiveMistralKey !== "";
-
-    let hasKeyForActiveProvider = false;
-    if (activeProvider === "gemini") hasKeyForActiveProvider = hasGeminiKey;
-    else if (activeProvider === "hybrid_mistral") hasKeyForActiveProvider = true;
-    else if (activeProvider === "claude") hasKeyForActiveProvider = hasClaudeKey;
-    else if (activeProvider === "mistral") hasKeyForActiveProvider = hasMistralKey;
-
-    const isQuotaLocked = Date.now() < geminiQuotaExhaustedUntil;
-
-    if (!hasKeyForActiveProvider || (activeProvider === "gemini" && isQuotaLocked)) {
-      return res.json({
-        answer: generateJournalistFallbackAnswer(articleTitle, articleCategory, articleContent, question),
-        fromAI: false,
-        journalistTitle: "Rédaction d'investigation Focus News"
+    const convHistory: Array<{ role: "user" | "assistant"; text: string }> = [];
+    if (Array.isArray(history) && history.length > 0) {
+      history.forEach((h: any) => {
+        convHistory.push({
+          role: h.role === "assistant" || h.role === "model" ? "assistant" : "user",
+          text: h.text || h.content || ""
+        });
       });
     }
 
-    let answerText = "";
-    let journalistRole = "Grand Reporter Focus News";
-    let sovereigntyInfo: AISovereigntyTelemetry | undefined = undefined;
-
-    const systemInstruction = `Tu es un grand reporter et journaliste d'investigation chevronné chez la rédaction indépendante « Focus News » (groupe souverain ALPHABETTE fondé par Valentin RICHAUD).
+    const systemInstruction = `Tu es un grand reporter et journaliste d'investigation chevronné chez la rédaction indépendante « Focus News » (écosystème logiciel souverain ALPHABETTE - http://alphabette.fr).
 Un lecteur lit l'article suivant et te pose une question directe pour approfondir le sujet.
 
 Titre de l'article : "${articleTitle}"
@@ -1531,69 +1410,24 @@ Contenu de l'article :
 ${articleContent}
 """
 
-Directives journalistiques :
+Directives journalistiques souveraines :
 - Réponds avec franchise, rigueur, pédagogie et passion du métier en français.
 - Adopte la posture vivante d'un journaliste disponible pour son lecteur (chaleureux, précis, factuel, sans langue de bois ni métalangage d'IA).
 - Apporte des explications concrètes, contextualise les enjeux, mentionne les différents points de vue ou controverses si pertinent.
 - Fais des paragraphes digestes et lisibles (150 à 250 mots environ). Utilise au besoin des puces légères si plusieurs aspects sont à distinguer.
-- Réponds directement à la question sans répéter la formule de politesse générale à chaque fois.`;
+- Réponds directement à la question sans répéter la formule de politesse générale à chaque fois.
+- Confidentialité garantie : traitement conforme au RGPD européen.`;
 
-    if (activeProvider === "hybrid_mistral" || activeProvider === "gemini" || activeProvider === "mistral") {
-      const mode: AIProviderMode = activeProvider === "mistral" ? "mistral_cloud_only" : (activeProvider as AIProviderMode);
-      
-      const convHistory: Array<{ role: "user" | "assistant"; text: string }> = [];
-      if (Array.isArray(history) && history.length > 0) {
-        history.forEach((h: any) => {
-          convHistory.push({
-            role: h.role === "assistant" || h.role === "model" ? "assistant" : "user",
-            text: h.text || h.content || ""
-          });
-        });
-      }
+    const aiRes = await askAI(question, {
+      systemInstruction,
+      conversationHistory: convHistory,
+      clientProvidedKey,
+      temperature: 0.7
+    });
 
-      const aiRes = await askAI(question, {
-        systemInstruction,
-        conversationHistory: convHistory,
-        providerOverride: mode,
-        temperature: 0.7
-      });
-
-      answerText = aiRes.text || "";
-      sovereigntyInfo = aiRes.sovereignty;
-      journalistRole = `Grand Reporter Focus News (${aiRes.sovereignty.providerLabel})`;
-
-    } else if (activeProvider === "claude") {
-      const messagesPayload: any[] = [];
-      if (Array.isArray(history) && history.length > 0) {
-        history.forEach((h: any) => {
-          messagesPayload.push({
-            role: h.role === "user" ? "user" : "assistant",
-            content: h.text || h.content || ""
-          });
-        });
-      }
-      messagesPayload.push({ role: "user", content: question });
-
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": effectiveClaudeKey,
-          "anthropic-version": "2023-06-01"
-        },
-        body: JSON.stringify({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 1000,
-          system: systemInstruction,
-          messages: messagesPayload
-        })
-      });
-
-      if (!response.ok) throw new Error(`Claude error: ${await response.text()}`);
-      const data = await response.json();
-      answerText = data?.content?.[0]?.text || "";
-      journalistRole = "Grand Reporter Focus News (Claude)";
-    }
+    const answerText = aiRes.text || "";
+    const sovereigntyInfo = aiRes.sovereignty;
+    const journalistRole = `Grand Reporter Focus News (${aiRes.sovereignty.providerLabel})`;
 
     return res.json({
       answer: answerText || generateJournalistFallbackAnswer(articleTitle, articleCategory, articleContent, question),

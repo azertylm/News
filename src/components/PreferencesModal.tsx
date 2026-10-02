@@ -762,40 +762,130 @@ export default function PreferencesModal({
             </div>
           )}
 
-          {/* TAB 3: AI & API KEYS */}
+          {/* TAB 3: MISTRAL AI EXCLUSIF & NIVEAUX D'ACCÈS */}
           {activeTab === "ai" && (
-            <div className="space-y-6 animate-fade-in">
+            <div className="space-y-5 animate-fade-in">
+              {/* Badge Souveraineté Européenne & RGPD */}
+              <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 font-bold text-xs">
+                  UE
+                </div>
+                <div className="text-xs text-emerald-800 dark:text-emerald-300">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <span>Mistral AI Exclusif — Souveraineté & RGPD Natifs</span>
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed opacity-90">
+                    Entreprise française hébergeant ses infrastructures en Europe. Vos requêtes et données de lecture ne quittent jamais le cadre juridique de l'Union européenne et ne sont jamais utilisées pour l'entraînement public.
+                  </p>
+                </div>
+              </div>
+
+              {/* 3 Niveaux d'Accès Officiels */}
               <div>
                 <label className={textLabelClass}>
-                  Moteur d'Intelligence Artificielle
+                  Niveau d'Accès à l'Intelligence Artificielle
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1">
                   {[
-                    { id: "gemini", name: "Gemini 3.7", desc: "Google Search Grounding" },
-                    { id: "claude", name: "Claude 3.5", desc: "Anthropic" },
-                    { id: "mistral", name: "Mistral", desc: "Mistral Large" }
-                  ].map((p) => {
-                    const isSel = provider === p.id;
+                    {
+                      id: "trial",
+                      title: "1. Essai 7 Jours",
+                      badge: "Inclus d'office",
+                      desc: "Alimenté par la clé API Mistral propriétaire Alphabette."
+                    },
+                    {
+                      id: "byok",
+                      title: "2. Mode BYOK",
+                      badge: "Votre propre clé",
+                      desc: "Renseignez votre clé Mistral personnelle pour consommer votre quota."
+                    },
+                    {
+                      id: "managed",
+                      title: "3. Mode Managé",
+                      badge: "Clé Alphabette",
+                      desc: "Consommation gérée par nos soins via abonnement Confort ou Bouquet."
+                    }
+                  ].map((tier) => {
+                    const isSelected = (mKey && mKey.trim().length > 5 && tier.id === "byok") || (!mKey && tier.id === "trial");
                     return (
-                      <button
-                        key={p.id}
-                        onClick={() => setProvider(p.id as any)}
-                        className={`p-3 rounded-xl border text-left transition cursor-pointer ${
-                          isSel
-                            ? "bg-purple-600 text-white border-purple-500 shadow-sm"
+                      <div
+                        key={tier.id}
+                        className={`p-3 rounded-xl border text-left transition ${
+                          isSelected
+                            ? "bg-blue-500/10 border-blue-500 text-blue-700 dark:text-blue-300 ring-1 ring-blue-500/50"
                             : theme === "clair"
-                            ? "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
-                            : "bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-zinc-300"
+                            ? "bg-slate-50 border-slate-200 text-slate-700"
+                            : "bg-zinc-900 border-zinc-800 text-zinc-300"
                         }`}
                       >
-                        <span className="font-bold text-xs block">{p.name}</span>
-                        <span className="text-[10px] opacity-75">{p.desc}</span>
-                      </button>
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <span className="font-bold text-xs">{tier.title}</span>
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400 font-mono font-bold">
+                            {tier.badge}
+                          </span>
+                        </div>
+                        <p className="text-[10px] opacity-75 leading-tight">{tier.desc}</p>
+                      </div>
                     );
                   })}
                 </div>
               </div>
 
+              {/* Champ clé API BYOK Mistral */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className={textLabelClass}>
+                    Votre Clé API Mistral (Mode BYOK optionnel)
+                  </label>
+                  <a
+                    href="https://console.mistral.ai"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    Obtenir une clé sur console.mistral.ai
+                  </a>
+                </div>
+                <input
+                  type="password"
+                  value={mKey}
+                  onChange={(e) => setMKey(e.target.value)}
+                  placeholder="Ex: mistral_sk_live_..."
+                  className={inputTextClass}
+                />
+                <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">
+                  Si vous laissez ce champ vide, l'application utilise la clé managée Alphabette (période d'essai 7 jours ou formule Confort / Bouquet Intégral).
+                </p>
+              </div>
+
+              {/* Environnements de déploiement supportés */}
+              <div>
+                <label className={textLabelClass}>
+                  Environnements Standardisés
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div className={`p-3 rounded-xl border ${theme === "clair" ? "bg-slate-50 border-slate-200" : "bg-zinc-900 border-zinc-800"}`}>
+                    <div className="flex items-center justify-between font-bold text-xs">
+                      <span>Production Cloud Mistral</span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">api.mistral.ai</span>
+                    </div>
+                    <p className="text-[10px] opacity-75 mt-1">
+                      Modèle officiel mistral-small-latest ou mistral-large-latest via l'API Cloud officielle.
+                    </p>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${theme === "clair" ? "bg-slate-50 border-slate-200" : "bg-zinc-900 border-zinc-800"}`}>
+                    <div className="flex items-center justify-between font-bold text-xs">
+                      <span>Local Mac (Metal / Ollama)</span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] bg-blue-500/20 text-blue-600 dark:text-blue-400">Apple Silicon</span>
+                    </div>
+                    <p className="text-[10px] opacity-75 mt-1">
+                      Inférence locale on-premises sur localhost:11434 (mistral-nemo, 0€/inférence).
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bio & profil du lecteur */}
               <div>
                 <label className={textLabelClass}>
                   Profil et centres d'intérêt du lecteur
@@ -804,40 +894,47 @@ export default function PreferencesModal({
                   value={activeBio}
                   onChange={(e) => setActiveBio(e.target.value)}
                   placeholder="Ex: Ingénieur passionné de politique et d'économie, je cherche des analyses factuelles étayées par des données..."
-                  rows={3}
+                  rows={2}
                   className={inputTextClass}
                 />
-              </div>
-
-              <div className="p-3.5 rounded-xl border bg-amber-500/10 border-amber-500/20 text-xs text-amber-700 dark:text-amber-300">
-                💡 <strong>Garantie de factualité :</strong> Les articles générés sont systématiquement recoupés avec <strong>Google Search Grounding</strong> et les dépêches de <strong>Le Monde</strong>, <strong>Marianne</strong> et <strong>Google News</strong>.
               </div>
             </div>
           )}
 
         </div>
 
-        {/* Footer with Action Buttons */}
-        <div className={`p-4 sm:p-5 border-t flex gap-3 ${
-          theme === "clair" ? "border-slate-100 bg-slate-50" : "border-zinc-900 bg-black/40"
+        {/* PIED DE PAGE OBLIGATOIRE VERS LE HUB CENTRAL + ACTIONS */}
+        <div className={`p-4 sm:p-5 border-t-2 flex flex-col sm:flex-row items-center justify-between gap-3 ${
+          theme === "clair" ? "border-slate-300 bg-slate-100 text-slate-900" : "border-zinc-800 bg-zinc-950 text-zinc-100"
         }`}>
-          <button
-            onClick={onClose}
-            className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition uppercase tracking-wider cursor-pointer text-center ${
-              theme === "clair"
-                ? "bg-slate-200 hover:bg-slate-300 text-slate-700"
-                : "bg-zinc-900 hover:bg-zinc-800 text-zinc-300"
-            }`}
+          <a
+            href="http://alphabette.fr"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs sm:text-sm font-black text-blue-700 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer order-2 sm:order-1"
           >
-            Annuler
-          </button>
+            Découvrir toutes les applications de la suite sur http://alphabette.fr
+          </a>
 
-          <button
-            onClick={handleSave}
-            className="flex-1 py-2.5 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-500 text-white transition uppercase tracking-wider cursor-pointer text-center shadow-md shadow-blue-500/20"
-          >
-            Appliquer & Synchroniser
-          </button>
+          <div className="flex items-center gap-2 w-full sm:w-auto order-1 sm:order-2">
+            <button
+              onClick={onClose}
+              className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl font-bold text-xs transition uppercase tracking-wider cursor-pointer text-center ${
+                theme === "clair"
+                  ? "bg-slate-200 hover:bg-slate-300 text-slate-700"
+                  : "bg-zinc-900 hover:bg-zinc-800 text-zinc-300"
+              }`}
+            >
+              Annuler
+            </button>
+
+            <button
+              onClick={handleSave}
+              className="flex-1 sm:flex-initial px-5 py-2 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-500 text-white transition uppercase tracking-wider cursor-pointer text-center shadow-md shadow-blue-500/20"
+            >
+              Appliquer & Synchroniser
+            </button>
+          </div>
         </div>
 
       </div>

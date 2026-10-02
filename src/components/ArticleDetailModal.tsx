@@ -359,79 +359,79 @@ export default function ArticleDetailModal({
       : "font-bold text-white uppercase bg-white/10 px-2 py-0.5 rounded text-[10px] border border-white/5";
 
   const metaTextInfoColor = 
-    theme === "clair" ? "text-slate-500 flex items-center gap-2.5 text-xs" : "flex items-center gap-2.5 text-xs text-white/40";
+    theme === "clair" ? "text-slate-700 flex items-center gap-2.5 text-xs font-semibold" : "flex items-center gap-2.5 text-xs text-zinc-300 font-semibold";
 
   // Actions
   const voiceoverBtnClass = 
     theme === "clair"
-      ? `flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer transition ${
+      ? `flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border-2 cursor-pointer transition ${
           isPlayingAudio
-            ? "bg-emerald-50 border-emerald-200 text-emerald-700 font-bold"
-            : "bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-250"
+            ? "bg-emerald-50 border-emerald-400 text-emerald-800 font-bold"
+            : "bg-slate-100 border-slate-300 text-slate-900 hover:bg-slate-200"
         }`
-      : `flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer transition ${
+      : `flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border-2 cursor-pointer transition ${
           isPlayingAudio
-            ? "bg-emerald-950/30 border-emerald-900/60 text-emerald-400"
-            : "bg-white/5 border-transparent hover:border-white/10 text-gray-300 hover:text-white"
+            ? "bg-emerald-950/50 border-emerald-600 text-emerald-300"
+            : "bg-zinc-900 border-zinc-700 text-zinc-200 hover:text-white hover:bg-zinc-800"
         }`;
 
   const bookmarkBtnClass = 
     theme === "clair"
-      ? `p-2 rounded-xl text-xs border cursor-pointer transition ${
+      ? `p-2 rounded-xl text-xs border-2 cursor-pointer transition ${
           article.bookmarked
-            ? "bg-blue-600 border-blue-600 text-white"
-            : "bg-slate-100 border-slate-200 text-slate-400 hover:text-slate-700 hover:bg-slate-200"
+            ? "bg-blue-600 border-blue-600 text-white font-bold"
+            : "bg-slate-100 border-slate-300 text-slate-800 hover:text-slate-900 hover:bg-slate-200"
         }`
-      : `p-2 rounded-xl text-xs border cursor-pointer transition ${
+      : `p-2 rounded-xl text-xs border-2 cursor-pointer transition ${
           article.bookmarked
-            ? "bg-blue-600 border-blue-600 text-white"
-            : "bg-white/5 border-transparent hover:border-white/10 text-white/40 hover:text-white/80"
+            ? "bg-blue-600 border-blue-600 text-white font-bold"
+            : "bg-zinc-900 border-zinc-700 text-zinc-200 hover:text-white hover:bg-zinc-800"
         }`;
 
   const likeBtnClass = 
     theme === "clair"
-      ? `p-2 rounded-xl text-xs border cursor-pointer transition ${
+      ? `p-2 rounded-xl text-xs border-2 cursor-pointer transition ${
           article.liked
-            ? "bg-rose-55 border-rose-200 text-rose-600 font-bold"
-            : "bg-slate-100 border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+            ? "bg-rose-50 border-rose-300 text-rose-700 font-bold"
+            : "bg-slate-100 border-slate-300 text-slate-800 hover:text-rose-700 hover:bg-rose-50"
         }`
-      : `p-2 rounded-xl text-xs border cursor-pointer transition ${
+      : `p-2 rounded-xl text-xs border-2 cursor-pointer transition ${
           article.liked
-            ? "bg-rose-950/20 border-rose-900/40 text-rose-500"
-            : "bg-white/5 border-transparent hover:border-white/10 text-white/40 hover:text-rose-400"
+            ? "bg-rose-950/40 border-rose-700 text-rose-400 font-bold"
+            : "bg-zinc-900 border-zinc-700 text-zinc-200 hover:text-rose-400 hover:bg-zinc-800"
         }`;
 
   // Panels
   const execSummaryPanelClass = 
     theme === "clair"
-      ? "bg-slate-50 border border-slate-200 rounded-2xl py-2.5 px-4 shadow-sm"
-      : "bg-white/5 border border-white/5 rounded-2xl py-2.5 px-4 shadow-sm";
+      ? "bg-slate-50 border-2 border-slate-300 rounded-2xl py-3 px-4 shadow-sm"
+      : "bg-zinc-900 border-2 border-zinc-800 rounded-2xl py-3 px-4 shadow-sm";
 
   const execSummaryTitleClass = 
-    theme === "clair" ? "text-xs font-bold uppercase tracking-wider text-slate-600 font-mono" : "text-xs font-bold uppercase tracking-wider text-white/80 font-mono";
+    theme === "clair" ? "text-xs font-bold uppercase tracking-wider text-slate-800 font-mono" : "text-xs font-bold uppercase tracking-wider text-zinc-200 font-mono";
 
   const summaryLinesClass = 
-    theme === "clair" ? "text-sm sm:text-base text-slate-800 leading-relaxed font-sans font-medium" : "text-sm sm:text-base text-white/95 leading-relaxed font-sans font-medium";
+    theme === "clair" ? "text-sm sm:text-base text-slate-900 leading-relaxed font-sans font-medium" : "text-sm sm:text-base text-zinc-100 leading-relaxed font-sans font-medium";
 
   const summaryEmptyTextClass = 
-    theme === "clair" ? "text-xs text-slate-500/80 italic font-medium" : "text-xs text-white/50/80 italic font-medium";
+    theme === "clair" ? "text-xs text-slate-700 italic font-medium" : "text-xs text-zinc-300 italic font-medium";
 
   const imageStudioBoxClass = 
     theme === "clair"
-      ? "bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3"
-      : "bg-white/5 border border-white/5 rounded-2xl p-4 space-y-3";
+      ? "bg-slate-50 border-2 border-slate-300 rounded-2xl p-4 space-y-3"
+      : "bg-zinc-900 border-2 border-zinc-800 rounded-2xl p-4 space-y-3";
 
   const imageStudioTitleClass = 
-    theme === "clair" ? "text-xs font-bold uppercase tracking-wider text-slate-600 font-mono" : "text-xs font-bold uppercase tracking-wider text-white/70 font-mono";
+    theme === "clair" ? "text-xs font-bold uppercase tracking-wider text-slate-800 font-mono" : "text-xs font-bold uppercase tracking-wider text-zinc-200 font-mono";
 
   const imageStudioInfoClass = 
     theme === "clair"
-      ? "text-[11px] text-slate-500 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-100/70 p-2.5 rounded-xl border border-slate-200"
-      : "text-[11px] text-white/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-black/20 p-2.5 rounded-xl border border-white/5";
+      ? "text-xs text-slate-800 font-semibold flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-100 p-2.5 rounded-xl border border-slate-300"
+      : "text-xs text-zinc-200 font-semibold flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-zinc-950 p-2.5 rounded-xl border border-zinc-800";
 
   // News Complements
   const sectionsBorderClass = 
-    theme === "clair" ? "space-y-4 border-t border-b border-slate-100 py-6" : "space-y-4 border-t border-b border-white/5 py-6";
+    theme === "clair" ? "space-y-4 border-t border-b border-slate-200 py-6" : "space-y-4 border-t border-b border-zinc-800 py-6";
 
   const resultsCardClass = 
     theme === "clair"
@@ -493,15 +493,15 @@ export default function ArticleDetailModal({
             <span id="modal-category-overlay" className="bg-blue-600 text-white font-mono text-[9px] font-bold tracking-widest uppercase px-2.5 py-0.5 rounded-md">
               {article.category}
             </span>
-            <span className={`text-[10px] font-mono ${theme === "clair" ? "text-slate-500" : "text-white/45"}`}>
+            <span className={`text-xs font-mono font-semibold ${theme === "clair" ? "text-slate-700" : "text-zinc-300"}`}>
               Photo d'illustration
             </span>
           </div>
           <button
             id="modal-close-button"
             onClick={onClose}
-            className={`p-1 rounded-full hover:bg-white/10 transition cursor-pointer ${
-              theme === "clair" ? "text-slate-600 hover:bg-slate-100" : "text-white/80"
+            className={`p-1.5 rounded-xl transition cursor-pointer ${
+              theme === "clair" ? "text-slate-800 hover:bg-slate-200" : "text-zinc-200 hover:bg-zinc-800"
             }`}
           >
             <X className="w-4 h-4" />
@@ -1041,7 +1041,31 @@ export default function ArticleDetailModal({
 
         </div>
 
-
+        {/* PIED DE PAGE OBLIGATOIRE ALPHABETTE */}
+        <div className={`p-4 px-6 border-t-2 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs sm:text-sm shrink-0 ${
+          theme === "clair" ? "bg-slate-100 border-slate-300 text-slate-900" : "bg-zinc-950 border-zinc-800 text-zinc-100"
+        }`}>
+          <a
+            href="http://alphabette.fr"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-700 dark:text-blue-400 font-black hover:underline flex items-center gap-1.5 cursor-pointer"
+          >
+            <span>Découvrir toutes les applications de la suite sur http://alphabette.fr</span>
+            <ExternalLink className="w-4 h-4 shrink-0" />
+          </a>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+              Propulsé par Mistral AI Souverain • RGPD Garanti
+            </span>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold border-2 transition cursor-pointer text-slate-900 bg-white hover:bg-slate-200 border-slate-300 dark:text-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:border-zinc-700 shadow-sm"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
 
       </div>
     </div>

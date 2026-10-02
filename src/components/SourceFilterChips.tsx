@@ -140,8 +140,8 @@ export const SourceFilterChips: React.FC<SourceFilterChipsProps> = ({
           } else {
             chipClasses =
               theme === "clair"
-                ? "bg-slate-100/80 text-slate-400 border-dashed border-slate-300 line-through opacity-60 hover:opacity-100"
-                : "bg-zinc-950 text-zinc-600 border-dashed border-zinc-800 line-through opacity-50 hover:opacity-90";
+                ? "bg-slate-100 text-slate-600 border-dashed border-slate-400 line-through opacity-75 hover:opacity-100"
+                : "bg-zinc-950 text-zinc-400 border-dashed border-zinc-700 line-through opacity-75 hover:opacity-100";
           }
 
           return (
@@ -168,20 +168,20 @@ export const SourceFilterChips: React.FC<SourceFilterChipsProps> = ({
                     <Check className="w-2.5 h-2.5 stroke-[3]" />
                   </span>
                 ) : (
-                  <EyeOff className="w-3 h-3 text-slate-400 dark:text-zinc-600 shrink-0" />
+                  <EyeOff className="w-3.5 h-3.5 text-slate-600 dark:text-zinc-400 shrink-0" />
                 )}
 
-                <span className={isToggledOff ? "italic" : ""}>{source}</span>
+                <span className={isToggledOff ? "italic font-semibold" : ""}>{source}</span>
 
                 <span
-                  className={`text-[10px] font-mono px-1.5 py-0.2 rounded-md ${
+                  className={`text-[10px] font-mono px-1.5 py-0.2 rounded-md font-bold ${
                     isToggledOn
                       ? theme === "clair"
-                        ? "bg-slate-100 text-slate-700 font-semibold"
-                        : "bg-zinc-800 text-zinc-300 font-semibold"
+                        ? "bg-slate-200 text-slate-900"
+                        : "bg-zinc-800 text-zinc-200"
                       : theme === "clair"
-                      ? "bg-slate-200/60 text-slate-400"
-                      : "bg-zinc-900 text-zinc-600"
+                      ? "bg-slate-200 text-slate-700"
+                      : "bg-zinc-800 text-zinc-400"
                   }`}
                 >
                   {count}

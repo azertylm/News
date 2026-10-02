@@ -494,7 +494,7 @@ export async function getLiveRealNews({
   const itemsNeedingSynthesis = candidateItems.filter(item => !item.fullContent || item.fullContent.length < 250);
   for (const item of itemsNeedingSynthesis.slice(0, 2)) {
     const cleanCat = determineCategory(item.title, item.snippet, item.category, categories);
-    const aiSynthesis = await generateFactualSynthesisWithGemini(item.title, item.snippet, item.source, cleanCat);
+    const aiSynthesis = await generateFactualSynthesisWithMistral(item.title, item.snippet, item.source, cleanCat);
     if (aiSynthesis && aiSynthesis.length > 200) {
       item.fullContent = aiSynthesis;
     }
@@ -687,11 +687,11 @@ const aiSynthesisCache = new Map<string, { text: string; timestamp: number }>();
 const CACHE_SYNTHESIS_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 /**
- * Generates an accurate, fact-based journalistic synthesis using the unified askAI router.
- * Routes dynamically according to the active provider (Gemini or Hybrid Sovereign Mistral).
- * Explicitly responds to the question posed in the title with real names, figures, and facts.
+ * Génère une synthèse journalistique factuelle et rigoureuse via le moteur souverain Mistral AI (askAI).
+ * Conforme aux directives de souveraineté Alphabette et respect du RGPD en Europe.
+ * Répond directement et précisément à la question posée dans le titre avec des faits et chiffres réels.
  */
-async function generateFactualSynthesisWithGemini(
+async function generateFactualSynthesisWithMistral(
   title: string, 
   snippet: string, 
   source: string, 

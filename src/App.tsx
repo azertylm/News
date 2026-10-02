@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { Sparkles, Heart, Bookmark, SlidersHorizontal, Info, Clock, Play, Disc, Zap, PlusCircle, FileText, Check } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { Article, UserLocation, AISovereigntyTelemetry, AlphabetteSubscriptionState } from "./types";
+import { Article, UserLocation, AISovereigntyTelemetry, AlphabetteSubscriptionState, AlphabettePlan } from "./types";
 import { sanitizeArticle, sanitizeText } from "./utils/textCleaner";
 import { getHourlyFlashSummary, getArticlesForHour, getInstantArticles } from "./data/hourlyNews";
 import { exportEditionToPdf } from "./utils/exportPdf";
+import { generateAlphabetteDataBundle, downloadAlphabetteBundle } from "./utils/alphabetteDataExchange";
 import Header from "./components/Header";
 import PreferencesModal from "./components/PreferencesModal";
 import LocationMediaBanner from "./components/LocationMediaBanner";
@@ -59,10 +60,38 @@ export default function App() {
   const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [todayVibe, setTodayVibe] = useState("");
   const [bio, setBio] = useState("");
-  const [activeProvider, setActiveProvider] = useState<"gemini" | "claude" | "mistral">("gemini");
+  const [activeProvider, setActiveProvider] = useState<"mistral" | "hybrid_mistral" | "gemini">("mistral");
+  const [mistralKey, setMistralKey] = useState<string>(() => {
+    try {
+      return localStorage.getItem("myNewsMistralKey") || "";
+    } catch {
+      return "";
+    }
+  });
   const [geminiKey, setGeminiKey] = useState("");
   
-  const [theme, setTheme] = useState<"clair" | "sombre">("sombre");
+  const [theme, setTheme] = useState<"clair" | "sombre">(() => {
+    try {
+      const stored = localStorage.getItem("myNewsTheme");
+      if (stored === "clair" || stored === "sombre") return stored;
+    } catch {}
+    return "clair"; // Default to light mode as requested by user
+  });
+
+  useEffect(() => {
+    if (theme === "sombre") {
+      document.documentElement.classList.add("dark");
+      document.documentElement.classList.remove("light");
+      document.documentElement.style.colorScheme = "dark";
+    } else {
+      document.documentElement.classList.remove("dark");
+      document.documentElement.classList.add("light");
+      document.documentElement.style.colorScheme = "light";
+    }
+    try {
+      localStorage.setItem("myNewsTheme", theme);
+    } catch {}
+  }, [theme]);
   
   // Custom interactive layout mode: Personalized profile-filtered feed vs global unfiltered feed
   const [isPersonalizedMode, setIsPersonalizedMode] = useState<boolean>(() => {
@@ -132,42 +161,99 @@ export default function App() {
     showToast(`Seule la source « ${sourceName} » est affichée`);
   };
 
-  // ALPHABETTE Sovereignty & Access Control states
+  // ALPHABETTE Sovereignty, Access Control & 7-Day Trial states
   const [sovereigntyOpen, setSovereigntyOpen] = useState(false);
   const [subscriptionOpen, setSubscriptionOpen] = useState(false);
   const [sovereigntyTelemetry, setSovereigntyTelemetry] = useState<AISovereigntyTelemetry | undefined>(undefined);
-  const [subscriptionState, setSubscriptionState] = useState<AlphabetteSubscriptionState>(() => {
+  
+  // Période d'essai (7 jours offerts alimentés par la clé Mistral Alphabette)
+  const [trialDaysRemaining, setTrialDaysRemaining] = useState<number>(() => {
     try {
-      const plan = (localStorage.getItem("alphabette_sub_plan") || "none") as "none" | "individual_1eur" | "bundle_3eur";
-      const date = localStorage.getItem("alphabette_sub_date") || undefined;
-      if (plan === "individual_1eur" || plan === "bundle_3eur") {
-        return {
-          isSubscribed: true,
-          plan,
-          activatedAt: date,
-          features: plan === "bundle_3eur" 
-            ? ["Suite complète ALPHABETTE (5 logiciels)", "IA Hybride Illimitée", "Zéro pub", "Hébergement souverain OVH"]
-            : ["Focus News / Infos Perso Grand Format", "IA Hybride Illimitée", "Zéro pub", "Hébergement souverain OVH"]
-        };
+      const started = localStorage.getItem("alphabette_trial_started_at");
+      if (!started) {
+        const now = Date.now();
+        localStorage.setItem("alphabette_trial_started_at", String(now));
+        return 7;
       }
-    } catch {}
-    return { isSubscribed: false, plan: "none", features: [] };
+      const elapsedDays = Math.floor((Date.now() - parseInt(started, 10)) / (24 * 3600 * 1000));
+      return Math.max(0, 7 - elapsedDays);
+    } catch {
+      return 7;
+    }
   });
 
-  const handleSelectPlan = (plan: "individual_1eur" | "bundle_3eur") => {
+  const [subscriptionState, setSubscriptionState] = useState<AlphabetteSubscriptionState>(() => {
+    try {
+      const plan = (localStorage.getItem("alphabette_sub_plan") || "trial_7d") as AlphabettePlan;
+      const date = localStorage.getItem("alphabette_sub_date") || undefined;
+      const accessMode = (localStorage.getItem("alphabette_access_mode") || "trial") as "trial" | "byok" | "managed";
+      const isPaid = plan === "individual_byok_15" || plan === "individual_confort_15" || plan === "bundle_byok_40" || plan === "bundle_integral_40" || plan === "individual_byok_39" || plan === "individual_confort_59" || plan === "bundle_byok_99" || plan === "bundle_integral_199";
+
+      return {
+        isSubscribed: isPaid,
+        plan,
+        accessMode,
+        activatedAt: date,
+        daysRemainingTrial: isPaid ? undefined : trialDaysRemaining,
+        features: plan.startsWith("bundle")
+          ? ["Suite complète ALPHABETTE (catalogue évolutif)", "Mistral AI Souverain Illimité", "Zéro pub", "Hébergement souverain OVH"]
+          : ["Focus News / Infos Perso Grand Format", "Mistral AI Souverain Illimité", "Zéro pub", "Hébergement souverain OVH"]
+      };
+    } catch {
+      return { isSubscribed: false, plan: "trial_7d", accessMode: "trial", daysRemainingTrial: 7, features: [] };
+    }
+  });
+
+  const handleSelectPlan = (plan: AlphabettePlan) => {
     const nowIso = new Date().toISOString();
+    let toast = "";
+    let accessMode: "trial" | "byok" | "managed" = "managed";
+
+    if (plan === "bundle_integral_40" || plan === "bundle_integral_199") {
+      toast = "🎉 Pass Bouquet Intégral (40 € / an) activé ! Toute la suite logicielle Alphabette est débloquée.";
+      accessMode = "managed";
+    } else if (plan === "bundle_byok_40" || plan === "bundle_byok_99") {
+      toast = "🎉 Pass Bouquet BYOK (40 € / an) activé ! Toute la suite est débloquée avec votre propre clé Mistral.";
+      accessMode = "byok";
+    } else if (plan === "individual_confort_15" || plan === "individual_confort_59") {
+      toast = "🎉 Formule Confort (15 € / an) activée ! Clé Mistral AI managée incluse.";
+      accessMode = "managed";
+    } else if (plan === "individual_byok_15" || plan === "individual_byok_39") {
+      toast = "🎉 Formule BYOK (15 € / an) activée ! Focus News illimité avec votre propre clé.";
+      accessMode = "byok";
+    } else {
+      toast = "Période d'essai 7 jours Alphabette active.";
+      accessMode = "trial";
+    }
+
     localStorage.setItem("alphabette_sub_plan", plan);
     localStorage.setItem("alphabette_sub_date", nowIso);
+    localStorage.setItem("alphabette_access_mode", accessMode);
+
     const updated: AlphabetteSubscriptionState = {
-      isSubscribed: true,
+      isSubscribed: plan !== "trial_7d" && plan !== "none",
       plan,
+      accessMode,
       activatedAt: nowIso,
-      features: plan === "bundle_3eur" 
-        ? ["Suite complète ALPHABETTE (5 logiciels)", "IA Hybride Illimitée", "Zéro pub", "Hébergement souverain OVH"]
-        : ["Focus News / Infos Perso Grand Format", "IA Hybride Illimitée", "Zéro pub", "Hébergement souverain OVH"]
+      features: plan.startsWith("bundle") 
+        ? ["Suite complète ALPHABETTE (catalogue évolutif)", "Mistral AI Souverain Illimité", "Zéro pub", "Hébergement souverain OVH"]
+        : ["Focus News / Infos Perso Grand Format", "Mistral AI Souverain Illimité", "Zéro pub", "Hébergement souverain OVH"]
     };
+
     setSubscriptionState(updated);
-    showToast(plan === "bundle_3eur" ? "🎉 Abonnement Pack ALPHABETTE (3€/mois) activé !" : "🎉 Abonnement Focus News (1€/mois) activé !");
+    showToast(toast);
+  };
+
+  // Synergie des données ALPHABETTE (Export standardisé inter-applications)
+  const handleExportAlphabetteData = () => {
+    const listToExport = sortedArticles && sortedArticles.length > 0 ? sortedArticles : articles;
+    if (listToExport.length === 0) {
+      showToast("Aucun article à exporter pour le moment.");
+      return;
+    }
+    const bundle = generateAlphabetteDataBundle(listToExport, location, categories, customCategories, todayVibe);
+    downloadAlphabetteBundle(bundle, `alphabette-focusnews-${new Date().toISOString().slice(0, 10)}.json`);
+    showToast("✨ Flux standardisé ALPHABETTE exporté (format JSON inter-applications) !");
   };
 
   const handleExportCurrentEditionPdf = () => {
@@ -259,7 +345,7 @@ export default function App() {
     custom: string[],
     vibe: string,
     userBio: string,
-    provider: "gemini" | "claude" | "mistral",
+    provider: any,
     gKey: string,
     cKey: string,
     mKey: string,
@@ -269,19 +355,21 @@ export default function App() {
     setCustomCategories(custom);
     setTodayVibe(vibe);
     setBio(userBio);
-    setActiveProvider(provider);
+    setActiveProvider("mistral");
     setGeminiKey(gKey);
+    setMistralKey(mKey);
     setLocation(updatedLocation);
     
     localStorage.setItem("myNewsPrefs", JSON.stringify(cats));
     localStorage.setItem("myCustomNewsPrefs", JSON.stringify(custom));
     localStorage.setItem("myNewsVibe", vibe);
     localStorage.setItem("myNewsBio", userBio);
-    localStorage.setItem("myNewsActiveProvider", provider);
+    localStorage.setItem("myNewsActiveProvider", "mistral");
     localStorage.setItem("myNewsGeminiKey", gKey);
+    localStorage.setItem("myNewsMistralKey", mKey);
     localStorage.setItem("myNewsLocation", JSON.stringify(updatedLocation));
 
-    showToast("Préférences régionales et éditoriales enregistrées !");
+    showToast("Préférences et clé Mistral enregistrées avec succès !");
     setPreferencesOpen(false);
 
     // Dynamic re-fetch with latest options to reflect new preferences immediately
@@ -290,7 +378,8 @@ export default function App() {
       custom,
       vibe,
       userBio,
-      prov: provider,
+      prov: "mistral",
+      mKey,
       gKey,
       loc: updatedLocation
     });
@@ -324,11 +413,12 @@ export default function App() {
       if (storedLocation) setLocation(JSON.parse(storedLocation));
 
       const storedBio = localStorage.getItem("myNewsBio") || "";
-      const storedProvider = (localStorage.getItem("myNewsActiveProvider") || "gemini") as "gemini" | "claude" | "mistral";
+      const storedMistralKey = localStorage.getItem("myNewsMistralKey") || "";
       const storedGeminiKey = localStorage.getItem("myNewsGeminiKey") || "";
 
       setBio(storedBio);
-      setActiveProvider(storedProvider);
+      setActiveProvider("mistral");
+      setMistralKey(storedMistralKey);
       setGeminiKey(storedGeminiKey);
 
       if (storedLikes) setLikedIds(JSON.parse(storedLikes));
@@ -348,7 +438,8 @@ export default function App() {
       custom?: string[];
       vibe?: string;
       userBio?: string;
-      prov?: "gemini" | "claude" | "mistral";
+      prov?: "mistral" | "hybrid_mistral" | "gemini";
+      mKey?: string;
       gKey?: string;
       loc?: UserLocation;
     },
@@ -365,6 +456,7 @@ export default function App() {
     const vibeToUse = overridePrefs?.vibe ?? todayVibe;
     const bioToUse = overridePrefs?.userBio ?? bio;
     const providerToUse = overridePrefs?.prov ?? activeProvider;
+    const mKeyToUse = overridePrefs?.mKey ?? mistralKey;
     const gKeyToUse = overridePrefs?.gKey ?? geminiKey;
     const locToUse = overridePrefs?.loc ?? location;
 
@@ -373,6 +465,7 @@ export default function App() {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
+          "x-mistral-key": mKeyToUse,
           "x-gemini-key": gKeyToUse,
         },
         body: JSON.stringify({
@@ -384,7 +477,8 @@ export default function App() {
           todayVibe: vibeToUse,
           bio: bioToUse,
           activeProvider: providerToUse,
-          location: locToUse
+          location: locToUse,
+          accessMode: subscriptionState.accessMode
         })
       });
       const data = await res.json();
@@ -1199,35 +1293,118 @@ export default function App() {
 
       </main>
 
-      {/* FOOTER */}
-      <footer className={`py-10 text-center text-xs mt-12 border-t ${
-        theme === "clair" ? "bg-slate-50 border-slate-200 text-slate-600" : "bg-black border-white/5 text-white/40"
-      }`}>
-        <div className="max-w-4xl mx-auto px-4 space-y-3">
-          <div className="flex flex-wrap items-center justify-center gap-3 font-semibold text-[11px]">
-            <button
-              onClick={() => setSovereigntyOpen(true)}
-              className="text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>Architecture Souveraine (OVH / Mistral)</span>
-            </button>
-            <span>•</span>
-            <button
-              onClick={() => setSubscriptionOpen(true)}
-              className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-            >
-              Catalogue &amp; Abonnements ALPHABETTE
-            </button>
-            <span>•</span>
-            <span className="text-slate-500 dark:text-zinc-500">Zéro Pistage Publicitaire • Respect de la Vie Privée</span>
+      {/* BANDEAU DE SYNERGIE DES DONNÉES & CROSS-SELLING BOUQUET ALPHABETTE */}
+      <section className="max-w-4xl mx-auto px-4 mt-12 mb-6">
+        <div className={`p-5 sm:p-6 rounded-2xl border-2 ${
+          theme === "clair" 
+            ? "bg-white border-slate-300 text-slate-900 shadow-md" 
+            : "bg-zinc-900 border-zinc-700 text-zinc-100 shadow-lg"
+        } space-y-4`}>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <span className="w-3 h-3 rounded-full bg-blue-600 animate-pulse"></span>
+                <h3 className="font-black text-base sm:text-lg text-slate-900 dark:text-white">
+                  Synergie &amp; Écosystème Logiciel ALPHABETTE
+                </h3>
+              </div>
+              <p className="text-xs sm:text-sm font-semibold text-slate-700 dark:text-zinc-300 mt-1">
+                Chaque application de la suite dialogue via des formats de données standardisés et souverains.
+              </p>
+            </div>
+
+            {/* Statut d'essai ou d'abonnement à fort contraste */}
+            <div className="flex items-center gap-2 shrink-0">
+              <span className={`px-3 py-1.5 rounded-full text-xs font-black shadow-sm ${
+                subscriptionState.isSubscribed
+                  ? "bg-purple-700 text-white"
+                  : "bg-blue-600 text-white"
+              }`}>
+                {subscriptionState.isSubscribed 
+                  ? "Abonnement Actif" 
+                  : `Essai Mistral : ${trialDaysRemaining} j restant(s)`}
+              </span>
+            </div>
           </div>
 
-          <p className="font-medium">
-            Focus News / Infos Perso Grand Format — Application du catalogue <strong>ALPHABETTE</strong> (fondé par Valentin RICHAUD).
+          {/* Actions de synergie des données avec boutons clairs et contrastés */}
+          <div className="flex flex-wrap items-center gap-3 pt-3 border-t-2 border-slate-200 dark:border-zinc-800">
+            <button
+              onClick={handleExportAlphabetteData}
+              className="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black transition flex items-center gap-2 cursor-pointer bg-blue-600 hover:bg-blue-700 text-white shadow"
+              title="Exporter les dépêches au format standardisé d'échange ALPHABETTE pour dialogue inter-applications"
+            >
+              <FileText className="w-4 h-4" />
+              <span>Exporter Flux JSON Alphabette</span>
+            </button>
+
+            <button
+              onClick={handleExportCurrentEditionPdf}
+              disabled={hasExportedEditionPdf}
+              className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black transition flex items-center gap-2 cursor-pointer border-2 ${
+                theme === "clair"
+                  ? "bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900"
+                  : "bg-zinc-800 hover:bg-zinc-700 border-zinc-600 text-white"
+              }`}
+            >
+              {hasExportedEditionPdf ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 font-bold" /> : <Zap className="w-4 h-4 text-amber-500" />}
+              <span>Télécharger l'Édition PDF</span>
+            </button>
+
+            <button
+              onClick={() => setSubscriptionOpen(true)}
+              className="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black transition flex items-center gap-2 cursor-pointer bg-purple-700 hover:bg-purple-800 text-white shadow ml-auto"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Découvrir le Bouquet Complet (40 € / an)</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* PIED DE PAGE OBLIGATOIRE DE L'ÉCOSYSTÈME ALPHABETTE (FORT CONTRASTE ET LISIBILITÉ OPTIMALE) */}
+      <footer className={`py-10 text-center text-xs sm:text-sm border-t-2 ${
+        theme === "clair" ? "bg-slate-100 border-slate-300 text-slate-900" : "bg-zinc-950 border-zinc-800 text-zinc-100"
+      }`}>
+        <div className="max-w-4xl mx-auto px-4 space-y-5">
+          
+          {/* LIEN CENTRAL OBLIGATOIRE VERS LE HUB AVEC CONTRASTE ÉLEVÉ */}
+          <div>
+            <a
+              href="http://alphabette.fr"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-3.5 px-6 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs sm:text-sm hover:underline inline-flex items-center gap-2 shadow-md cursor-pointer transition"
+            >
+              <span>Découvrir toutes les applications de la suite sur http://alphabette.fr</span>
+              <span className="text-base font-black">→</span>
+            </a>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-3 font-bold text-xs sm:text-sm">
+            <button
+              onClick={() => setSovereigntyOpen(true)}
+              className="text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-1.5 cursor-pointer"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
+              <span>Mistral AI Exclusif (Souveraineté RGPD &amp; OVH France)</span>
+            </button>
+            <span className="text-slate-400 dark:text-zinc-600">•</span>
+            <button
+              onClick={() => setSubscriptionOpen(true)}
+              className="text-purple-700 dark:text-purple-300 hover:underline cursor-pointer font-black"
+            >
+              Grille Tarifaire (15 € / 40 € / an)
+            </button>
+            <span className="text-slate-400 dark:text-zinc-600">•</span>
+            <span className="text-slate-700 dark:text-zinc-300">Zéro Pistage • Hébergement en France</span>
+          </div>
+
+          <p className="font-bold text-slate-800 dark:text-zinc-200">
+            Focus News / Infos Perso Grand Format — Application de l'écosystème souverain <strong>ALPHABETTE</strong> (fondé par Valentin RICHAUD).
           </p>
-          <p className="opacity-70 text-[10px]">
-            Hébergement souverain sur serveurs OVH (alphabette.fr / alphabette.eu) • Moteur d'inférence hybride résilient
+          <p className="font-semibold text-slate-600 dark:text-zinc-400 text-xs">
+            Hébergement souverain sur serveurs OVH (alphabette.fr / alphabette.eu) • Moteur d'inférence souverain Mistral AI
           </p>
         </div>
       </footer>
@@ -1245,7 +1422,7 @@ export default function App() {
             activeProvider={activeProvider}
             geminiKey={geminiKey}
             claudeKey=""
-            mistralKey=""
+            mistralKey={mistralKey}
             location={location}
             initialTab={preferencesInitialTab}
             onSave={handleSavePreferences}
